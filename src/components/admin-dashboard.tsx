@@ -1,0 +1,315 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import type { User, Task, TeamMember } from '@/lib/types';
+import { ALL_USERS, MOCK_VERTICES, TEAM_MEMBERS } from '@/lib/mock-data';
+import { MOCK_TASKS } from '@/lib/mock-data';
+import {
+  LayoutDashboard,
+  ListChecks,
+  FileSpreadsheet,
+  PieChart,
+  Users,
+  FileText,
+  TrendingUp,
+  Home,
+  ArrowLeft,
+  Radio,
+} from 'lucide-react';
+import DashboardPage from './dashboard-page';
+import TaskManagementPage from './task-management-page';
+import CostEstimation from './cost-estimation';
+import Clock from './clock';
+import { cn } from '@/lib/utils';
+import UserMenu from './user-menu';
+import OverviewPage from './overview-page';
+import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarTrigger, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarFooter, SidebarInset } from './ui/sidebar';
+import MyTeamPage from './my-team-page';
+import Notifications from './notifications';
+import ReportsPage from './reports-page';
+import EmployeePerformancePage from './employee-performance-page';
+import BroadcastingPage from './broadcasting-page';
+import { Button } from './ui/button';
+import LiveUsersIndicator from './live-users-indicator';
+import { useRealtime } from '@/lib/realtime';
+
+type AdminView = 'overview' | 'dashboard' | 'task-management' | 'cost-estimation' | 'my-team' | 'reports' | 'performance' | 'broadcasting';
+
+interface AdminDashboardProps {
+  currentUser: any; // AuthUser from context
+}
+
+export default function AdminDashboard({ currentUser: authUser }: AdminDashboardProps) {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [user, setUser] = useState<User | null>(null);
+  const [activeView, setActiveView] = useState<AdminView>('overview');
+  const [viewHistory, setViewHistory] = useState<AdminView[]>(['overview']);
+
+  const fetchTasks = async () => {
+    try {
+      const token = localStorage.getItem('authToken');
+      const response = await fetch('/api/tasks', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` }),
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setTasks(result.tasks);
+      } else {
+        // Fallback to mock data if API fails
+        const mockTasks = MOCK_TASKS;
+        setTasks(mockTasks);
+        sessionStorage.setItem('tasks', JSON.stringify(mockTasks));
+      }
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
+      // Fallback to mock data
+      const mockTasks = MOCK_TASKS;
+      setTasks(mockTasks);
+      sessionStorage.setItem('tasks', JSON.stringify(mockTasks));
+    }
+  };
+
+  useEffect(() => {
+    // Initialize other data in sessionStorage if it doesn't exist
+    if (!sessionStorage.getItem('vertices')) {
+      sessionStorage.setItem('vertices', JSON.stringify(MOCK_VERTICES));
+    }
+
+    if (!sessionStorage.getItem('teamMembers')) {
+      sessionStorage.setItem('teamMembers', JSON.stringify(TEAM_MEMBERS));
+    }
+
+    if (!sessionStorage.getItem('allUsers')) {
+      sessionStorage.setItem('allUsers', JSON.stringify(ALL_USERS));
+    }
+
+    if (!sessionStorage.getItem('notifications')) {
+      sessionStorage.setItem('notifications', JSON.stringify([]));
+    }
+
+    // Convert auth user to User type for compatibility
+    if (authUser) {
+      const userData: User = {
+        name: authUser.name,
+        email: authUser.email,
+        role: authUser.role
+      };
+      setUser(userData);
+    }
+
+    // Fetch tasks from API
+    fetchTasks();
+  }, [authUser]);
+
+  // Listen for real-time task events
+  useRealtime('task_created', (event) => {
+    console.log('Task created event received in admin:', event);
+    fetchTasks(); // Re-fetch tasks when new task is created
+  });
+
+  useRealtime('task_updated', (event) => {
+    console.log('Task updated event received in admin:', event);
+    fetchTasks(); // Re-fetch tasks when task is updated
+  });
+
+  const handleSetView = (view: AdminView) => {
+    setViewHistory(prev => [...prev, view]);
+    setActiveView(view);
+  }
+
+  const handleBack = () => {
+    if (viewHistory.length > 1) {
+      const newHistory = [...viewHistory];
+      newHistory.pop();
+      const previousView = newHistory[newHistory.length - 1];
+      setViewHistory(newHistory);
+      setActiveView(previousView);
+    }
+  }
+
+  const updateTasksState = (newTasks: Task[]) => {
+    setTasks(newTasks);
+    // Also refresh from API to ensure we have the latest data
+    fetchTasks();
+  };
+
+  const addTask = (newTask: Task) => {
+    // Just update local state - the real-time event will trigger a refresh
+    setTasks(prevTasks => [...prevTasks, newTask]);
+  };
+
+  const updateTask = async (updatedTask: Task) => {
+    try {
+      const token = localStorage.getItem('authToken');
+      const taskId = updatedTask._id || updatedTask.id;
+
+      if (!taskId) {
+        console.error('Task ID is missing for update');
+        return;
+      }
+
+      const response = await fetch('/api/tasks', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` }),
+        },
+        body: JSON.stringify({
+          taskId: taskId,
+          progress: updatedTask.progress,
+          status: updatedTask.status,
+          remarks: updatedTask.remarks,
+          actualWorkingHours: updatedTask.actualWorkingHours,
+          reviewStatus: updatedTask.reviewStatus,
+          priority: updatedTask.priority
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        // Update local state with the response from API
+        setTasks(prevTasks =>
+          prevTasks.map((task) =>
+            (task.id === result.task.id || task._id === result.task._id) ? result.task : task
+          )
+        );
+      } else {
+        console.error('Failed to update task:', await response.text());
+      }
+    } catch (error) {
+      console.error('Error updating task:', error);
+    }
+  };
+
+  const deleteTask = (taskId: string | string[]) => {
+    const idsToDelete = Array.isArray(taskId) ? taskId : [taskId];
+    const newTasks = tasks.filter((task) => !idsToDelete.includes(task.id));
+    updateTasksState(newTasks);
+  };
+
+  const renderContent = () => {
+    switch(activeView) {
+      case 'overview':
+        return <OverviewPage tasks={tasks} />;
+      case 'dashboard':
+        return <DashboardPage initialTasks={tasks} currentUser={user} />;
+      case 'task-management':
+        return <TaskManagementPage tasks={tasks} addTask={addTask} updateTask={updateTask} deleteTask={deleteTask} currentUser={user}/>;
+      case 'cost-estimation':
+        return <CostEstimation currentUser={user} />;
+      case 'my-team':
+        return <MyTeamPage currentUser={user} />;
+      case 'reports':
+        return <ReportsPage currentUser={user} />;
+      case 'performance':
+        return <EmployeePerformancePage currentUser={user} />;
+      case 'broadcasting':
+        return <BroadcastingPage currentUser={user} />;
+      default:
+        return <OverviewPage tasks={tasks} />;
+    }
+  }
+
+  // Don't render if user is not loaded yet
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-secondary/40 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <p className="text-muted-foreground">Loading admin dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <SidebarProvider>
+      <Sidebar side="left" collapsible="icon">
+         <SidebarHeader>
+           <div className="flex justify-between items-center p-4">
+              <div className="w-32 group-data-[collapsible=icon]:hidden">
+                 <h2 className="text-2xl font-bold tracking-wider text-sidebar-foreground">ADMIN</h2>
+              </div>
+              <SidebarTrigger />
+           </div>
+         </SidebarHeader>
+         <SidebarContent>
+           <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => handleSetView('overview')} isActive={activeView === 'overview'} tooltip="Overview">
+                <PieChart />
+                <span>Overview</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => handleSetView('dashboard')} isActive={activeView === 'dashboard'} tooltip="Dashboard">
+                <LayoutDashboard />
+                <span>Dashboard</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => handleSetView('task-management')} isActive={activeView === 'task-management'} tooltip="Task Management">
+                <ListChecks />
+                <span>Task Management</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => handleSetView('my-team')} isActive={activeView === 'my-team'} tooltip="My Team">
+                <Users />
+                <span>My Team</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => handleSetView('cost-estimation')} isActive={activeView === 'cost-estimation'} tooltip="Market Price">
+                <FileSpreadsheet />
+                <span>Market Price</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => handleSetView('reports')} isActive={activeView === 'reports'} tooltip="Reports">
+                <FileText />
+                <span>Reports</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => handleSetView('performance')} isActive={activeView === 'performance'} tooltip="Performance">
+                <TrendingUp />
+                <span>Performance</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => handleSetView('broadcasting')} isActive={activeView === 'broadcasting'} tooltip="Broadcasting">
+                <Radio />
+                <span>Broadcasting</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+           </SidebarMenu>
+         </SidebarContent>
+         <SidebarFooter>
+            <div className="p-4 group-data-[collapsible=icon]:hidden">
+              <Clock />
+            </div>
+         </SidebarFooter>
+      </Sidebar>
+
+      <SidebarInset>
+        <div className="w-full p-4 sm:p-6">
+          <header className="flex justify-end">
+            <div className="flex items-center gap-4">
+              <LiveUsersIndicator />
+              <Notifications />
+              <UserMenu />
+            </div>
+          </header>
+           <div className="mt-6">
+              {renderContent()}
+            </div>
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
+  );
+}

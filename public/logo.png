@@ -1,0 +1,163 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import type { User, Task } from '@/lib/types';
+import { ALL_USERS } from '@/lib/mock-data';
+import { MOCK_TASKS } from '@/lib/mock-data';
+import {
+  LayoutDashboard,
+  ListChecks,
+  FileSpreadsheet,
+  CalendarDays,
+  PieChart,
+} from 'lucide-react';
+import DashboardPage from './dashboard-page';
+import TaskManagementPage from './task-management-page';
+import CostEstimation from './cost-estimation';
+import Clock from './clock';
+import { cn } from '@/lib/utils';
+import UserSwitcher from './user-switcher';
+import TimelineViewPage from './timeline-view-page';
+import OverviewPage from './overview-page';
+import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarTrigger, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from './ui/sidebar';
+import Image from 'next/image';
+
+type ActiveView = 'overview' | 'dashboard' | 'task-management' | 'timeline' | 'cost-estimation';
+
+export default function TaskFlowPage() {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [currentUser, setCurrentUser] = useState<User>(ALL_USERS[0]);
+  const [activeView, setActiveView] = useState<ActiveView>('overview');
+
+  useEffect(() => {
+    const storedTasks = sessionStorage.getItem('tasks');
+    if (!storedTasks) {
+      sessionStorage.setItem('tasks', JSON.stringify(MOCK_TASKS));
+      setTasks(MOCK_TASKS);
+    } else {
+      setTasks(JSON.parse(storedTasks));
+    }
+  }, []);
+
+  const updateTasksState = (newTasks: Task[]) => {
+    setTasks(newTasks);
+    sessionStorage.setItem('tasks', JSON.stringify(newTasks));
+    window.dispatchEvent(new Event('tasksChanged'));
+  };
+
+  const addTask = (newTask: Task) => {
+    const newTasks = [...tasks, newTask];
+    updateTasksState(newTasks);
+  };
+
+  const updateTask = (updatedTask: Task) => {
+    const newTasks = tasks.map((task) => (task.id === updatedTask.id ? updatedTask : task));
+    updateTasksState(newTasks);
+  };
+
+  const deleteTask = (taskId: string | string[]) => {
+    const idsToDelete = Array.isArray(taskId) ? taskId : [taskId];
+    const newTasks = tasks.filter((task) => !idsToDelete.includes(task.id));
+    updateTasksState(newTasks);
+  };
+
+  const isAdmin = currentUser.role === 'admin';
+  const isClient = currentUser.role === 'client';
+  const isUser = currentUser.role === 'user';
+  
+  const renderContent = () => {
+    switch(activeView) {
+      case 'overview':
+        return <OverviewPage tasks={tasks} />;
+      case 'dashboard':
+        return <DashboardPage initialTasks={tasks} currentUser={currentUser} />;
+      case 'task-management':
+        if (isClient) return null;
+        return <TaskManagementPage tasks={tasks} addTask={addTask} updateTask={updateTask} deleteTask={deleteTask} currentUser={currentUser}/>;
+      case 'timeline':
+        return <TimelineViewPage tasks={tasks} />;
+      case 'cost-estimation':
+        if (isUser) return null;
+        return <CostEstimation />;
+      default:
+        return <OverviewPage tasks={tasks} />;
+    }
+  }
+
+  return (
+    <SidebarProvider>
+    <div className="min-h-screen bg-secondary/40 flex">
+      <Sidebar side="left" className="w-64" collapsible="icon">
+         <SidebarHeader>
+           <div className="flex justify-between items-center p-4">
+              <div className="w-32 group-data-[collapsible=icon]:hidden">
+                <Image src="/logo.png" alt="TopRock Global Logo" width={128} height={35} />
+              </div>
+              <SidebarTrigger />
+           </div>
+         </SidebarHeader>
+         <SidebarContent>
+           <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => setActiveView('overview')} isActive={activeView === 'overview'} tooltip="Overview">
+                <PieChart />
+                <span>Overview</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => setActiveView('dashboard')} isActive={activeView === 'dashboard'} tooltip="Dashboard">
+                <LayoutDashboard />
+                <span>Dashboard</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            {!isClient && (
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={() => setActiveView('task-management')} isActive={activeView === 'task-management'} tooltip="Task Management">
+                  <ListChecks />
+                  <span>Task Management</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
+             <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => setActiveView('timeline')} isActive={activeView === 'timeline'} tooltip="Timeline">
+                <CalendarDays />
+                <span>Timeline</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+             {!isUser && (
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={() => setActiveView('cost-estimation')} isActive={activeView === 'cost-estimation'} tooltip="Cost Estimation">
+                  <FileSpreadsheet />
+                  <span>Cost Estimation</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )}
+           </SidebarMenu>
+         </SidebarContent>
+      </Sidebar>
+
+      <main className="flex-1">
+        <div className="container mx-auto p-4 sm:p-6 lg:p-8">
+          <header className="mb-8 flex justify-between items-start">
+            <div>
+              <h1 className="text-4xl font-bold tracking-tight text-foreground">
+                Project TaskFlow
+              </h1>
+              <p className="text-muted-foreground mt-2">
+                Your central hub for managing tasks, tracking progress, and estimating costs.
+              </p>
+            </div>
+            <div className="flex items-start gap-4">
+              <UserSwitcher currentUser={currentUser} setCurrentUser={setCurrentUser} />
+              <Clock />
+            </div>
+          </header>
+           <div className="mt-6">
+              {renderContent()}
+            </div>
+        </div>
+      </main>
+    </div>
+    </SidebarProvider>
+  );
+}

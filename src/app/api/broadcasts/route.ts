@@ -1,22 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/database';
 import User from '@/models/User';
+import Broadcast from '@/models/Broadcast';
 import { getCurrentUser } from '@/lib/auth';
-
-interface Broadcast {
-  _id?: string;
-  title: string;
-  message: string;
-  category: string;
-  priority: 'Low' | 'Medium' | 'High' | 'Critical';
-  createdBy: string;
-  createdByName: string;
-  createdDate: Date;
-  targetUsers?: string[];
-  readBy?: string[];
-  vertex?: string;
-  isArchived: boolean;
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -49,7 +35,7 @@ export async function GET(request: NextRequest) {
         filter.$or = [
           { targetUsers: { $in: [currentUser.userId] } },
           { vertex: user.vertex },
-          { targetUsers: { $exists: false } } // General broadcasts
+          { targetUsers: { $size: 0 } } // General broadcasts
         ];
       }
     }
@@ -62,34 +48,28 @@ export async function GET(request: NextRequest) {
       filter.vertex = vertex;
     }
 
-    // Get broadcasts from database (we'll use User collection for now with broadcast-specific fields)
-    const broadcasts = await User.aggregate([
-      {
-        $match: {
-          broadcastTitle: { $exists: true },
-          isArchived: { $ne: true }
-        }
-      },
-      {
-        $project: {
-          _id: 1,
-          title: '$broadcastTitle',
-          message: '$broadcastMessage',
-          category: '$broadcastCategory',
-          priority: '$broadcastPriority',
-          createdBy: '$_id',
-          createdByName: '$name',
-          createdDate: '$broadcastCreatedDate',
-          targetUsers: '$broadcastTargetUsers',
-          readBy: '$broadcastReadBy',
-          vertex: '$broadcastVertex',
-          isArchived: { $ifNull: ['$broadcastIsArchived', false] }
-        }
-      },
-      { $sort: { createdDate: -1 } }
-    ]);
+    // Get broadcasts from database
+    const broadcasts = await Broadcast.find(filter)
+      .sort({ createdDate: -1 })
+      .limit(100);
 
-    return NextResponse.json({ success: true, broadcasts });
+    // Enrich broadcasts with user profile images
+    const enrichedBroadcasts = await Promise.all(
+      broadcasts.map(async (broadcast) => {
+        const broadcastObj = broadcast.toJSON();
+        try {
+          const user = await User.findById(broadcast.createdBy).select('profileImage');
+          if (user && user.profileImage) {
+            broadcastObj.createdByAvatar = user.profileImage;
+          }
+        } catch (error) {
+          console.error('Error fetching user profile image:', error);
+        }
+        return broadcastObj;
+      })
+    );
+
+    return NextResponse.json({ success: true, broadcasts: enrichedBroadcasts });
 
   } catch (error) {
     console.error('Broadcasts GET error:', error);
@@ -120,41 +100,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Create broadcast document
-    const broadcastId = new Date().getTime().toString();
-    const newBroadcast = {
-      _id: broadcastId,
+    const newBroadcast = await Broadcast.create({
       title: broadcastData.title,
       message: broadcastData.message,
-      category: broadcastData.category,
+      category: broadcastData.category || 'general',
       priority: broadcastData.priority || 'Medium',
       createdBy: currentUser.userId,
       createdByName: creator.name,
       createdDate: new Date(),
       targetUsers: broadcastData.targetUsers || [],
       readBy: [],
-      vertex: broadcastData.vertex,
+      vertex: broadcastData.vertex || creator.vertex,
       isArchived: false
-    };
-
-    // Store broadcast in a separate collection document
-    // For now, we'll use a workaround by creating a document in User collection with broadcast data
-    await User.create({
-      email: `broadcast_${broadcastId}@system.local`,
-      name: `Broadcast_${broadcastId}`,
-      password: 'system123',
-      role: 'system',
-      broadcastTitle: newBroadcast.title,
-      broadcastMessage: newBroadcast.message,
-      broadcastCategory: newBroadcast.category,
-      broadcastPriority: newBroadcast.priority,
-      broadcastCreatedBy: newBroadcast.createdBy,
-      broadcastCreatedByName: newBroadcast.createdByName,
-      broadcastCreatedDate: newBroadcast.createdDate,
-      broadcastTargetUsers: newBroadcast.targetUsers,
-      broadcastReadBy: newBroadcast.readBy,
-      broadcastVertex: newBroadcast.vertex,
-      broadcastIsArchived: false,
-      isSystemDocument: true
     });
 
     return NextResponse.json({
@@ -165,7 +122,10 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Broadcasts POST error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 }
 
@@ -178,17 +138,14 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { broadcastId, action, readBy } = await request.json();
+    const { broadcastId, action } = await request.json();
 
     if (!broadcastId) {
       return NextResponse.json({ error: 'Broadcast ID is required' }, { status: 400 });
     }
 
     // Find the broadcast
-    const broadcast = await User.findOne({
-      email: `broadcast_${broadcastId}@system.local`,
-      isSystemDocument: true
-    });
+    const broadcast = await Broadcast.findById(broadcastId);
 
     if (!broadcast) {
       return NextResponse.json({ error: 'Broadcast not found' }, { status: 404 });
@@ -197,49 +154,77 @@ export async function PUT(request: NextRequest) {
     // Handle different actions
     if (action === 'markAsRead') {
       // Add user to readBy array if not already present
-      const readByArray = broadcast.broadcastReadBy || [];
+      const readByArray = broadcast.readBy || [];
       if (!readByArray.includes(currentUser.userId)) {
         readByArray.push(currentUser.userId);
-        await User.findByIdAndUpdate(broadcast._id, {
-          broadcastReadBy: readByArray
+        await Broadcast.findByIdAndUpdate(broadcastId, {
+          readBy: readByArray
         });
       }
     } else if (action === 'archive') {
       // Only creator or admin can archive
-      if (currentUser.role !== 'admin' && broadcast.broadcastCreatedBy !== currentUser.userId) {
+      if (currentUser.role !== 'admin' && broadcast.createdBy !== currentUser.userId) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
 
-      await User.findByIdAndUpdate(broadcast._id, {
-        broadcastIsArchived: true
+      await Broadcast.findByIdAndUpdate(broadcastId, {
+        isArchived: true
       });
     }
 
     // Get updated broadcast
-    const updatedBroadcast = await User.findById(broadcast._id);
-    const formattedBroadcast = {
-      _id: broadcastId,
-      title: updatedBroadcast.broadcastTitle,
-      message: updatedBroadcast.broadcastMessage,
-      category: updatedBroadcast.broadcastCategory,
-      priority: updatedBroadcast.broadcastPriority,
-      createdBy: updatedBroadcast.broadcastCreatedBy,
-      createdByName: updatedBroadcast.broadcastCreatedByName,
-      createdDate: updatedBroadcast.broadcastCreatedDate,
-      targetUsers: updatedBroadcast.broadcastTargetUsers,
-      readBy: updatedBroadcast.broadcastReadBy,
-      vertex: updatedBroadcast.broadcastVertex,
-      isArchived: updatedBroadcast.broadcastIsArchived
-    };
+    const updatedBroadcast = await Broadcast.findById(broadcastId);
 
     return NextResponse.json({
       success: true,
-      broadcast: formattedBroadcast,
+      broadcast: updatedBroadcast,
       message: 'Broadcast updated successfully'
     });
 
   } catch (error) {
     console.error('Broadcasts PUT error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    await connectToDatabase();
+
+    const currentUser = await getCurrentUser(request);
+    if (!currentUser) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Get broadcast ID from query parameters
+    const { searchParams } = new URL(request.url);
+    const broadcastId = searchParams.get('id');
+
+    if (!broadcastId) {
+      return NextResponse.json({ error: 'Broadcast ID is required' }, { status: 400 });
+    }
+
+    // Find the broadcast
+    const broadcast = await Broadcast.findById(broadcastId);
+    if (!broadcast) {
+      return NextResponse.json({ error: 'Broadcast not found' }, { status: 404 });
+    }
+
+    // Only admins or the creator can delete broadcasts
+    if (currentUser.role !== 'admin' && broadcast.createdBy !== currentUser.userId) {
+      return NextResponse.json({ error: 'Forbidden: You can only delete your own broadcasts' }, { status: 403 });
+    }
+
+    // Delete the broadcast
+    await Broadcast.findByIdAndDelete(broadcastId);
+
+    return NextResponse.json({
+      success: true,
+      message: 'Broadcast deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Broadcasts DELETE error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

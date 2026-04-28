@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clearing Authentication...</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .container {
+            background: white;
+            padding: 3rem;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            max-width: 500px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 1rem;
+            font-size: 2rem;
+        }
+        p {
+            color: #666;
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 2rem auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .success {
+            color: #10b981;
+            font-weight: 600;
+            display: none;
+        }
+        .info {
+            background: #f0f9ff;
+            border-left: 4px solid #667eea;
+            padding: 1rem;
+            margin-top: 1rem;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Authentication Reset</h1>
+        <p>We're clearing old authentication data and preparing a fresh session for you...</p>
+        <div class="spinner"></div>
+        <p class="success" id="success">✅ All cleared! Redirecting to login...</p>
+        <div class="info">
+            <strong>What's happening:</strong><br>
+            • Removing legacy authentication keys<br>
+            • Clearing cached user data<br>
+            • Resetting session storage<br>
+            • Redirecting to fresh login
+        </div>
+    </div>
+
+    <script>
+        // Clear all authentication-related data
+        const keysToRemove = ['authToken', 'token', 'user', 'tasks', 'notifications'];
+
+        console.log('🧹 Starting authentication cleanup...');
+
+        keysToRemove.forEach(key => {
+            if (localStorage.getItem(key)) {
+                console.log(`  ✓ Removing localStorage.${key}`);
+                localStorage.removeItem(key);
+            }
+            if (sessionStorage.getItem(key)) {
+                console.log(`  ✓ Removing sessionStorage.${key}`);
+                sessionStorage.removeItem(key);
+            }
+        });
+
+        // Show success message
+        setTimeout(() => {
+            document.querySelector('.spinner').style.display = 'none';
+            document.getElementById('success').style.display = 'block';
+            console.log('✅ Authentication cleanup complete!');
+
+            // Redirect to login after 1.5 seconds
+            setTimeout(() => {
+                console.log('🚀 Redirecting to login page...');
+                window.location.href = '/login';
+            }, 1500);
+        }, 1000);
+    </script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import type { User, Task, TeamMember } from '@/lib/types';
+import type { User, Task, TeamMember } from '@/types';
 import { ALL_USERS, MOCK_VERTICES, TEAM_MEMBERS } from '@/lib/mock-data';
 import { MOCK_TASKS } from '@/lib/mock-data';
 import {

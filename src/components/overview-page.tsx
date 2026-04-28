@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import type { Task, Vertices, TaskStatus, User, TeamMember } from '@/lib/types';
+import type { Task, Vertices, TaskStatus, User, TeamMember } from '@/types';
 import { MOCK_TASKS, TEAM_MEMBERS as INITIAL_TEAM_MEMBERS, MOCK_VERTICES } from '@/lib/mock-data';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import {

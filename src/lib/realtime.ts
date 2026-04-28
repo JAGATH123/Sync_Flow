@@ -61,16 +61,24 @@ class RealtimeManager {
 
   private storeEvent(event: RealtimeEvent) {
     try {
-      const existingEvents = JSON.parse(sessionStorage.getItem('realtime_events') || '[]');
-      const events = [...existingEvents, event].slice(-50); // Keep only last 50 events
-      sessionStorage.setItem('realtime_events', JSON.stringify(events));
+      // Check if we're in a browser environment
+      if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+        return; // Skip storage on server side
+      }
 
-      // Trigger storage event for cross-tab communication
-      window.dispatchEvent(new StorageEvent('storage', {
-        key: 'realtime_events',
-        newValue: JSON.stringify(events),
-        storageArea: sessionStorage
-      }));
+      const existingEvents = JSON.parse(localStorage.getItem('realtime_events') || '[]');
+      const events = [...existingEvents, event].slice(-50); // Keep only last 50 events
+      localStorage.setItem('realtime_events', JSON.stringify(events));
+
+      // Broadcast using BroadcastChannel API for same-origin cross-tab communication
+      if (typeof BroadcastChannel !== 'undefined') {
+        const channel = new BroadcastChannel('syncflow_realtime');
+        channel.postMessage(event);
+        channel.close();
+      }
+
+      // Also trigger storage event as fallback
+      window.dispatchEvent(new Event('realtime_event'));
     } catch (error) {
       console.error('Error storing realtime event:', error);
     }
@@ -78,7 +86,7 @@ class RealtimeManager {
 
   getRecentEvents(type?: string): RealtimeEvent[] {
     try {
-      const events = JSON.parse(sessionStorage.getItem('realtime_events') || '[]');
+      const events = JSON.parse(localStorage.getItem('realtime_events') || '[]');
       return type ? events.filter((e: RealtimeEvent) => e.type === type) : events;
     } catch (error) {
       console.error('Error getting recent events:', error);
@@ -89,18 +97,39 @@ class RealtimeManager {
   initialize() {
     if (this.connected) return;
 
-    // Listen for storage changes (cross-tab sync)
+    // Listen for BroadcastChannel messages (cross-tab sync)
+    if (typeof BroadcastChannel !== 'undefined') {
+      const channel = new BroadcastChannel('syncflow_realtime');
+      channel.addEventListener('message', (event) => {
+        if (event.data) {
+          console.log('BroadcastChannel message received:', event.data);
+          this.notifyListeners(event.data);
+        }
+      });
+    }
+
+    // Listen for storage changes (fallback for cross-tab sync)
     window.addEventListener('storage', (e) => {
       if (e.key === 'realtime_events' && e.newValue) {
         try {
           const events = JSON.parse(e.newValue);
           const latestEvent = events[events.length - 1];
           if (latestEvent) {
+            console.log('Storage event received:', latestEvent);
             this.notifyListeners(latestEvent);
           }
         } catch (error) {
           console.error('Error processing storage event:', error);
         }
+      }
+    });
+
+    // Listen for custom realtime events within the same tab
+    window.addEventListener('realtime_event', () => {
+      const events = this.getRecentEvents();
+      const latestEvent = events[events.length - 1];
+      if (latestEvent) {
+        console.log('Custom realtime event received:', latestEvent);
       }
     });
 

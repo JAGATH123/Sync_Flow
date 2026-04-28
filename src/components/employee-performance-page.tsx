@@ -2,9 +2,9 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import type { Task, Vertices, User, TeamMember, TaskStatus, WorkType, UserRole } from '@/lib/types';
+import type { Task, Vertices, User, TeamMember, TaskStatus, WorkType, UserRole } from '@/types';
 import { MOCK_TASKS, MOCK_VERTICES, TEAM_MEMBERS } from '@/lib/mock-data';
-import { COST_RATES } from '@/lib/types';
+import { COST_RATES } from '@/lib/constants';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -23,6 +23,7 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import Link from 'next/link';
+import { useRealtime } from '@/lib/realtime';
 
 interface EmployeePerformancePageProps {
     currentUser: User;
@@ -131,9 +132,32 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
         }
     };
 
+    // Fetch tasks from API
+    const fetchTasks = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('/api/tasks', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            const data = await response.json();
+
+            if (data.success && data.tasks) {
+                setTasks(data.tasks);
+            }
+        } catch (error) {
+            console.error('Error fetching tasks:', error);
+            // Fallback to mock data if API fails
+            setTasks(MOCK_TASKS);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     useEffect(() => {
-        const storedTasks = sessionStorage.getItem('tasks');
-        setTasks(storedTasks ? JSON.parse(storedTasks) : MOCK_TASKS);
+        // Fetch tasks from API instead of sessionStorage
+        fetchTasks();
 
         // Load team members from sessionStorage first, then API
         const storedMembers = sessionStorage.getItem('teamMembers');
@@ -151,9 +175,40 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
             }
         };
 
+        // Listen for task updates to refresh performance data
+        const handleTaskUpdate = () => {
+            fetchTasks();
+        };
+
         window.addEventListener('teamMembersChanged', handleTeamMemberChange);
+        window.addEventListener('tasksChanged', handleTaskUpdate);
         return () => {
             window.removeEventListener('teamMembersChanged', handleTeamMemberChange);
+            window.removeEventListener('tasksChanged', handleTaskUpdate);
+        };
+    }, []);
+
+    // Listen for real-time task events
+    useEffect(() => {
+        const unsubscribe1 = useRealtime('task_created', (event) => {
+            console.log('Task created event received in performance:', event);
+            fetchTasks();
+        });
+
+        const unsubscribe2 = useRealtime('task_updated', (event) => {
+            console.log('Task updated event received in performance:', event);
+            fetchTasks();
+        });
+
+        const unsubscribe3 = useRealtime('task_deleted', (event) => {
+            console.log('Task deleted event received in performance:', event);
+            fetchTasks();
+        });
+
+        return () => {
+            unsubscribe1();
+            unsubscribe2();
+            unsubscribe3();
         };
     }, []);
 
@@ -177,17 +232,19 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
             isAfter(parseISO(task.createdDate), startDate)
         );
 
-        // Get all current team members plus any additional assignees from tasks (deleted users)
-        const taskAssignees = Array.from(new Set(filteredTasks.map(task => task.assignedTo)));
+        // Get only current team members (exclude deleted users)
         const allCurrentMembers = teamMembers.map(m => m.name);
-        const allAssignees = Array.from(new Set([...allCurrentMembers, ...taskAssignees]));
 
-        const employeeAnalytics: EmployeeAnalytics[] = allAssignees.map(assigneeName => {
+        const employeeAnalytics: EmployeeAnalytics[] = allCurrentMembers.map(assigneeName => {
             const member = teamMembers.find(m => m.name === assigneeName);
-            const memberTasks = filteredTasks.filter(task => task.assignedTo === assigneeName);
+            // Match tasks by assignedToName field (not assignedTo which is the ID)
+            const memberTasks = filteredTasks.filter(task =>
+                (task.assignedToName === assigneeName) ||
+                (task.assignedTo === assigneeName)
+            );
 
-            // If member not found in current team, they are deleted
-            const isDeleted = !member;
+            // Skip if member not found (safety check)
+            if (!member) return null;
 
             const completedTasks = memberTasks.filter(t => t.status === 'Delivered');
             const inProgressTasks = memberTasks.filter(t => t.status === 'In Progress');
@@ -245,10 +302,10 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
             const last30DaysCompleted = last30DaysTasks.filter(t => t.status === 'Delivered');
 
             return {
-                name: isDeleted ? assigneeName : member.name,
-                empId: isDeleted ? 'DELETED' : member.empId,
-                designation: isDeleted ? 'Employee Left' : member.designation,
-                email: isDeleted ? 'N/A' : member.email,
+                name: member.name,
+                empId: member.empId,
+                designation: member.designation,
+                email: member.email,
                 totalTasks: memberTasks.length,
                 completedTasks: completedTasks.length,
                 inProgressTasks: inProgressTasks.length,
@@ -288,16 +345,9 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
                 last30DaysTasks: last30DaysTasks.length,
                 trend: last30DaysCompleted.length > completedTasks.length * 0.3 ? 'up' :
                        last30DaysCompleted.length < completedTasks.length * 0.1 ? 'down' : 'stable',
-                user: isDeleted ? {
-                    name: assigneeName,
-                    empId: 'DELETED',
-                    designation: 'Employee Left',
-                    email: 'N/A',
-                    role: 'user' as UserRole,
-                    profileImage: undefined
-                } : member
+                user: member
             };
-        });
+        }).filter(Boolean) as EmployeeAnalytics[]; // Filter out null values
 
         // Calculate team overview
         const totalCompleted = employeeAnalytics.reduce((sum, emp) => sum + emp.completedTasks, 0);
@@ -847,14 +897,7 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
                                 {(searchedUser ? [searchedUser] : analytics)
                                     .sort((a, b) => b.productivityScore - a.productivityScore)
                                     .map((employee, index) => (
-                                        <Card key={employee.empId} className={`relative overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl ${
-                                            index === 0 ? 'ring-2 ring-yellow-400 bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-950/20 dark:to-orange-950/20 shadow-lg' :
-                                            index === 1 ? 'ring-2 ring-gray-400 bg-gradient-to-br from-gray-50 to-slate-50 dark:from-gray-950/20 dark:to-slate-950/20 shadow-md' :
-                                            index === 2 ? 'ring-2 ring-amber-600 bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-950/20 dark:to-yellow-950/20 shadow-md' :
-                                            employee.productivityScore >= 80 ? 'border-2 border-green-200 bg-gradient-to-br from-green-50/50 to-emerald-50/50 dark:from-green-950/10 dark:to-emerald-950/10' :
-                                            employee.productivityScore >= 60 ? 'border-2 border-blue-200 bg-gradient-to-br from-blue-50/50 to-cyan-50/50 dark:from-blue-950/10 dark:to-cyan-950/10' :
-                                            'border-2 border-red-200 bg-gradient-to-br from-red-50/30 to-pink-50/30 dark:from-red-950/10 dark:to-pink-950/10'
-                                        }`}>
+                                        <Card key={employee.empId} className="relative overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl border-2 border-blue-200 bg-gradient-to-br from-blue-50/50 to-cyan-50/50 dark:from-blue-950/10 dark:to-cyan-950/10">
                                             {index < 3 && (
                                                 <div className="absolute top-3 right-3 flex items-center gap-1">
                                                     <div className={`p-2 rounded-full ${
@@ -884,19 +927,11 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
                                                             'ring-red-300'
                                                         }`}>
                                                             <AvatarImage src={employee.user.profileImage || `https://i.pravatar.cc/150?u=${employee.email}`} />
-                                                            <AvatarFallback className={`font-bold text-white text-lg ${
-                                                                employee.productivityScore >= 80 ? 'bg-gradient-to-br from-green-500 to-emerald-600' :
-                                                                employee.productivityScore >= 60 ? 'bg-gradient-to-br from-blue-500 to-cyan-600' :
-                                                                'bg-gradient-to-br from-red-500 to-pink-600'
-                                                            }`}>
+                                                            <AvatarFallback className="font-bold text-white text-lg bg-gradient-to-br from-blue-500 to-cyan-600">
                                                                 {employee.name.split(' ').map(n => n[0]).join('')}
                                                             </AvatarFallback>
                                                         </Avatar>
-                                                        <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-md ${
-                                                            employee.productivityScore >= 80 ? 'bg-green-500' :
-                                                            employee.productivityScore >= 60 ? 'bg-blue-500' :
-                                                            'bg-red-500'
-                                                        }`}>
+                                                        <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-md bg-blue-500">
                                                             {employee.productivityScore}
                                                         </div>
                                                     </div>
@@ -924,12 +959,12 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
                                                                     )}
                                                                 </div>
                                                             </CardTitle>
-                                                            <CardDescription className="flex items-center gap-2">
+                                                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                                                 <span>{employee.designation}</span>
                                                                 <Badge variant="outline" className="text-xs px-2 py-0">
                                                                     {employee.empId}
                                                                 </Badge>
-                                                            </CardDescription>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -942,22 +977,14 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
                                                             <Gauge className="h-4 w-4 text-primary" />
                                                             Productivity Score
                                                         </span>
-                                                        <div className={`px-3 py-1 rounded-full text-sm font-bold ${
-                                                            employee.productivityScore >= 80 ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' :
-                                                            employee.productivityScore >= 60 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300' :
-                                                            'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300'
-                                                        }`}>
+                                                        <div className="px-3 py-1 rounded-full text-sm font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
                                                             {employee.productivityScore}%
                                                         </div>
                                                     </div>
                                                     <div className="relative">
                                                         <Progress
                                                             value={employee.productivityScore}
-                                                            className={`h-3 transition-all duration-500 ${
-                                                                employee.productivityScore >= 80 ? '[&>div]:bg-gradient-to-r [&>div]:from-green-500 [&>div]:to-emerald-600' :
-                                                                employee.productivityScore >= 60 ? '[&>div]:bg-gradient-to-r [&>div]:from-blue-500 [&>div]:to-cyan-600' :
-                                                                '[&>div]:bg-gradient-to-r [&>div]:from-red-500 [&>div]:to-pink-600'
-                                                            }`}
+                                                            className="h-3 transition-all duration-500 [&>div]:bg-gradient-to-r [&>div]:from-blue-500 [&>div]:to-cyan-600"
                                                         />
                                                         <div className="flex justify-between mt-1 text-xs text-muted-foreground">
                                                             <span>0%</span>
@@ -976,26 +1003,26 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
                                                         </div>
                                                         <p className="text-lg font-bold text-blue-900 dark:text-blue-100">{Math.round(employee.completionRate)}%</p>
                                                     </div>
-                                                    <div className="p-3 bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950/30 dark:to-green-900/30 rounded-lg border border-green-200 dark:border-green-800">
+                                                    <div className="p-3 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800">
                                                         <div className="flex items-center gap-2 mb-1">
-                                                            <Clock className="h-3 w-3 text-green-600" />
-                                                            <p className="text-xs font-medium text-green-700 dark:text-green-300">On-Time</p>
+                                                            <Clock className="h-3 w-3 text-blue-600" />
+                                                            <p className="text-xs font-medium text-blue-700 dark:text-blue-300">On-Time</p>
                                                         </div>
-                                                        <p className="text-lg font-bold text-green-900 dark:text-green-100">{Math.round(employee.onTimeDeliveryRate)}%</p>
+                                                        <p className="text-lg font-bold text-blue-900 dark:text-blue-100">{Math.round(employee.onTimeDeliveryRate)}%</p>
                                                     </div>
-                                                    <div className="p-3 bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/30 dark:to-purple-900/30 rounded-lg border border-purple-200 dark:border-purple-800">
+                                                    <div className="p-3 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800">
                                                         <div className="flex items-center gap-2 mb-1">
-                                                            <CheckCircle2 className="h-3 w-3 text-purple-600" />
-                                                            <p className="text-xs font-medium text-purple-700 dark:text-purple-300">Tasks</p>
+                                                            <CheckCircle2 className="h-3 w-3 text-blue-600" />
+                                                            <p className="text-xs font-medium text-blue-700 dark:text-blue-300">Tasks</p>
                                                         </div>
-                                                        <p className="text-lg font-bold text-purple-900 dark:text-purple-100">{employee.completedTasks}<span className="text-sm text-muted-foreground">/{employee.totalTasks}</span></p>
+                                                        <p className="text-lg font-bold text-blue-900 dark:text-blue-100">{employee.completedTasks}<span className="text-sm text-muted-foreground">/{employee.totalTasks}</span></p>
                                                     </div>
-                                                    <div className="p-3 bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-950/30 dark:to-orange-900/30 rounded-lg border border-orange-200 dark:border-orange-800">
+                                                    <div className="p-3 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800">
                                                         <div className="flex items-center gap-2 mb-1">
-                                                            <IndianRupee className="h-3 w-3 text-orange-600" />
-                                                            <p className="text-xs font-medium text-orange-700 dark:text-orange-300">Revenue</p>
+                                                            <IndianRupee className="h-3 w-3 text-blue-600" />
+                                                            <p className="text-xs font-medium text-blue-700 dark:text-blue-300">Revenue</p>
                                                         </div>
-                                                        <p className="text-lg font-bold text-orange-900 dark:text-orange-100">
+                                                        <p className="text-lg font-bold text-blue-900 dark:text-blue-100">
                                                             {(employee.costGenerated / 1000).toFixed(0)}k
                                                         </p>
                                                     </div>

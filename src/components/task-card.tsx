@@ -1,7 +1,7 @@
 
 'use client';
 
-import type { Task, User, TeamMember } from '@/lib/types';
+import type { Task, User, TeamMember } from '@/types';
 import { TEAM_MEMBERS as INITIAL_TEAM_MEMBERS } from '@/lib/mock-data';
 import {
   Card,
@@ -130,7 +130,7 @@ export default function TaskCard({ task, currentUser }: TaskCardProps) {
             {task.name}
           </CardTitle>
            <Button asChild variant="ghost" size="icon" className="h-6 w-6 shrink-0">
-                <Link href={`/task/${task.id}`}>
+                <Link href={`/task/${task._id || task.id}`}>
                     <ExternalLink className="h-4 w-4 text-muted-foreground" />
                     <span className="sr-only">View Task</span>
                 </Link>

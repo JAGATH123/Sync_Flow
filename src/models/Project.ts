@@ -1,5 +1,5 @@
 import mongoose, { Document, Schema } from 'mongoose';
-import type { TaskStatus, WorkType, Vertices } from '@/lib/types';
+import type { TaskStatus, WorkType, Vertices } from '@/types';
 
 export interface IProject extends Document {
   _id: string;

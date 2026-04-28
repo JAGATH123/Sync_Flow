@@ -5,8 +5,8 @@ import { useState, useEffect, useMemo, use } from 'react';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast';
 import { MOCK_TASKS, ALL_USERS, MOCK_VERTICES, TEAM_MEMBERS as INITIAL_TEAM_MEMBERS } from '@/lib/mock-data';
-import { COST_RATES, WORK_TYPES, TASK_STATUSES, TASK_PRIORITIES } from '@/lib/types';
-import type { Task, User, TaskStatus, WorkType, Vertices, TaskPriority, TeamMember } from '@/lib/types';
+import { COST_RATES, WORK_TYPES, TASK_STATUSES, TASK_PRIORITIES } from '@/lib/constants';
+import type { Task, User, TaskStatus, WorkType, Vertices, TaskPriority, TeamMember } from '@/types';
 import { 
     ArrowLeft, 
     User as UserIcon, 
@@ -51,19 +51,78 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
 
 
   useEffect(() => {
-    const storedUser = sessionStorage.getItem('currentUser');
+    const storedUser = localStorage.getItem('user');
     if (storedUser) {
       setCurrentUser(JSON.parse(storedUser));
     }
 
-    const storedTasks = sessionStorage.getItem('tasks');
-    const allTasks = storedTasks ? JSON.parse(storedTasks) : MOCK_TASKS;
-    const foundTask = allTasks.find((t: Task) => t.id === id);
-    
-    if (foundTask) {
-      setTask(foundTask);
-      setEditedTask(foundTask);
-    }
+    // Load task from API
+    const loadTask = async () => {
+      try {
+        const token = localStorage.getItem('token');
+
+        if (!token) {
+          console.warn('No token found, redirecting to login');
+          window.location.href = '/login';
+          return;
+        }
+
+        const response = await fetch('/api/tasks', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (response.status === 401) {
+          console.warn('Token expired, redirecting to login');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          window.location.href = '/login';
+          return;
+        }
+
+        if (response.ok) {
+          const data = await response.json();
+
+          if (data.success && data.tasks) {
+            const foundTask = data.tasks.find((t: any) => t._id === id || t.id === id);
+
+            if (foundTask) {
+              // Format task for frontend
+              const formattedTask: Task = {
+                id: foundTask._id || foundTask.id,
+                _id: foundTask._id,
+                name: foundTask.name,
+                assignedTo: foundTask.assignedToName || foundTask.assignedTo?.name || foundTask.assignedTo,
+                status: foundTask.status || 'Not Started',
+                progress: foundTask.progress || 0,
+                startDate: foundTask.startDate?.split('T')[0] || foundTask.startDate,
+                endDate: foundTask.endDate?.split('T')[0] || foundTask.endDate,
+                createdDate: foundTask.createdDate?.split('T')[0] || foundTask.createdDate,
+                completionDate: foundTask.completionDate?.split('T')[0],
+                client: foundTask.client || '',
+                clientEmail: foundTask.clientEmail || '',
+                assigneeEmail: foundTask.assigneeEmail || '',
+                vertex: foundTask.vertex || 'CMIS',
+                typeOfWork: foundTask.typeOfWork || 'Development',
+                category: foundTask.category || 'General',
+                workingHours: foundTask.workingHours || 0,
+                estimatedCost: foundTask.estimatedCost || 0,
+                priority: foundTask.priority || 'Medium',
+              };
+
+              setTask(formattedTask);
+              setEditedTask(formattedTask);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load task:', error);
+      }
+    };
+
     // Load team members from API
     const loadTeamMembers = async () => {
       try {
@@ -94,6 +153,7 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
       }
     };
 
+    loadTask();
     loadTeamMembers();
   }, [id]);
   
@@ -173,23 +233,82 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
     setEditedTask(updatedTask);
   };
 
-  const handleSaveChanges = () => {
+  const handleSaveChanges = async () => {
      if (!editedTask) return;
-    
-    setTask(editedTask);
-    
-    const storedTasks = sessionStorage.getItem('tasks');
-    const allTasks = storedTasks ? JSON.parse(storedTasks) : MOCK_TASKS;
-    const updatedTasks = allTasks.map((t: Task) => t.id === editedTask!.id ? editedTask : t);
-    sessionStorage.setItem('tasks', JSON.stringify(updatedTasks));
-    window.dispatchEvent(new Event('tasksChanged'));
 
-    toast({
-        title: 'Task Updated',
-        description: `Your changes to the task have been saved successfully.`,
-    });
-    setIsConfirmingSave(false);
-    setIsEditMode(false);
+    try {
+      const token = localStorage.getItem('token');
+
+      if (!token) {
+        toast({
+          title: 'Authentication Error',
+          description: 'Please log in again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const response = await fetch(`/api/tasks/${editedTask._id || editedTask.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: editedTask.name,
+          status: editedTask.status,
+          progress: editedTask.progress,
+          assignedTo: editedTask.assignedTo,
+          assigneeEmail: editedTask.assigneeEmail,
+          startDate: editedTask.startDate,
+          endDate: editedTask.endDate,
+          completionDate: editedTask.completionDate,
+          client: editedTask.client,
+          clientEmail: editedTask.clientEmail,
+          vertex: editedTask.vertex,
+          typeOfWork: editedTask.typeOfWork,
+          category: editedTask.category,
+          workingHours: editedTask.workingHours,
+          estimatedCost: editedTask.estimatedCost,
+          priority: editedTask.priority,
+        }),
+      });
+
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        toast({
+          title: 'Session Expired',
+          description: 'Please log in again.',
+          variant: 'destructive',
+        });
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 1500);
+        return;
+      }
+
+      if (response.ok) {
+        setTask(editedTask);
+
+        toast({
+          title: 'Task Updated',
+          description: `Your changes to the task have been saved successfully.`,
+        });
+        setIsConfirmingSave(false);
+        setIsEditMode(false);
+      } else {
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to update task');
+      }
+    } catch (error) {
+      console.error('Error updating task:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to update task. Please try again.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleResetChanges = () => {
@@ -222,6 +341,9 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
   }
   
   const isFieldDisabled = (fieldName: keyof Task) => {
+    // If task is delivered, all fields are disabled (read-only)
+    if (editedTask?.status === 'Delivered') return true;
+
     if (isClient) return true;
     if (isAdmin) {
       // Admins can edit anything, but only when in 'Edit Mode'
@@ -268,11 +390,17 @@ export default function TaskDetailPage({ params }: { params: Promise<{ id: strin
                                 <AlertTriangle className="mr-2 h-4 w-4" />{editedTask.priority}
                             </Badge>
                            <Badge variant="outline" className="text-sm font-semibold">{editedTask.vertex}</Badge>
-                           {isAdmin && (
+                           {isAdmin && editedTask.status !== 'Delivered' && (
                               <Button variant="outline" size="sm" onClick={toggleEditMode}>
                                 {isEditMode ? <X className="mr-2 h-4 w-4"/> : <Edit className="mr-2 h-4 w-4" />}
                                 {isEditMode ? 'Cancel' : 'Edit Task'}
                               </Button>
+                           )}
+                           {editedTask.status === 'Delivered' && (
+                              <Badge className="bg-green-500 text-white">
+                                <CheckCircle className="mr-2 h-4 w-4" />
+                                Task Completed
+                              </Badge>
                            )}
                        </div>
                   </div>

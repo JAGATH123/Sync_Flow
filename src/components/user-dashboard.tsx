@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import type { User, Task } from '@/lib/types';
+import type { User, Task } from '@/types';
 import { MOCK_TASKS } from '@/lib/mock-data';
 import {
   LayoutDashboard,
@@ -72,14 +72,30 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
 
   const fetchTasks = useCallback(async () => {
     try {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('token');
+
+      if (!token) {
+        console.warn('No token found, redirecting to login');
+        window.location.href = '/login';
+        return;
+      }
+
       const response = await fetch('/api/tasks', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          ...(token && { 'Authorization': `Bearer ${token}` }),
+          'Authorization': `Bearer ${token}`,
         },
       });
+
+      if (response.status === 401) {
+        // Token expired or invalid
+        console.warn('Token expired, clearing auth and redirecting to login');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+        return;
+      }
 
       if (response.ok) {
         const result = await response.json();
@@ -113,9 +129,7 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
           }
         }
       } else {
-        // Fallback to mock data if API fails
-        const mockTasks = MOCK_TASKS;
-        setTasks(mockTasks);
+        console.error('Failed to fetch tasks:', response.status);
         if (authUser) {
           const userTasks = mockTasks.filter((task: Task) =>
             task.assignedTo === authUser.name || task.assigneeEmail === authUser.email
@@ -202,7 +216,7 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
 
   const updateTaskProgress = async (taskId: string, progress: number, actualHours?: number) => {
     try {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('token');
 
       // Determine status based on progress
       let status = '';
@@ -1038,13 +1052,16 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
         <SidebarHeader>
           <div className="flex justify-between items-center p-4">
             <div className="w-32 group-data-[collapsible=icon]:hidden">
-              <h2 className="text-2xl font-bold tracking-wider text-sidebar-foreground">USER</h2>
+              <h2 className="text-2xl font-bold tracking-wider text-sidebar-foreground">SyncFlow</h2>
             </div>
             <SidebarTrigger />
           </div>
+          <div className="px-4 pb-4 group-data-[collapsible=icon]:hidden">
+            <div className="h-px bg-border"></div>
+          </div>
         </SidebarHeader>
         <SidebarContent>
-          <SidebarMenu>
+          <SidebarMenu className="gap-1 px-2">
             <SidebarMenuItem>
               <SidebarMenuButton onClick={() => handleSetView('my-tasks')} isActive={activeView === 'my-tasks'} tooltip="My Tasks">
                 <CheckSquare />
@@ -1067,13 +1084,21 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
         </SidebarContent>
         <SidebarFooter>
           <div className="p-4 group-data-[collapsible=icon]:hidden">
-            <Clock />
+            <div className="flex flex-col items-center justify-center space-y-3">
+              <p className="text-sm font-bold text-muted-foreground tracking-widest uppercase font-orbitron">Developed By</p>
+              <img
+                src="/LOF_alternate.png"
+                alt="LOF Logo"
+                className="h-12 w-auto object-contain"
+              />
+            </div>
           </div>
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
         <div className="w-full p-4 sm:p-6">
-          <header className="flex justify-end mb-6">
+          <header className="flex justify-between items-center mb-6">
+            <Clock />
             <div className="flex items-center gap-4">
               <Notifications />
               <UserMenu />

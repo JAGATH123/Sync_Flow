@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import type { Task, Vertices, WorkType, TaskPriority, TaskCategory, User, TeamMember } from '@/lib/types';
+import type { Task, Vertices, WorkType, TaskPriority, TaskCategory, User, TeamMember } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -37,7 +37,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { PlusCircle, Loader2, ChevronsUpDown, Check } from 'lucide-react';
 import { MOCK_VERTICES, TEAM_MEMBERS as INITIAL_TEAM_MEMBERS } from '@/lib/mock-data';
-import { WORK_TYPES, TASK_PRIORITIES, COST_RATES } from '@/lib/types';
+import { WORK_TYPES, TASK_PRIORITIES, COST_RATES } from '@/lib/constants';
 import { format, add } from 'date-fns';
 import { ScrollArea } from './ui/scroll-area';
 import { cn } from '@/lib/utils';
@@ -179,10 +179,33 @@ export default function CreateTaskDialog({ addTask, currentUser }: CreateTaskDia
     setIsLoading(true);
 
     try {
+      // Get the authentication token
+      const token = localStorage.getItem('token');
+
+      console.log('Creating task with token:', token ? 'Token exists' : 'No token found');
+
+      if (!token) {
+        setIsLoading(false);
+        setIsOpen(false);
+        toast({
+          title: 'Session Expired',
+          description: 'Please log in again to continue.',
+          variant: 'destructive',
+        });
+        // Redirect to login after a short delay
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 1500);
+        return;
+      }
+
+      console.log('Sending POST request to /api/tasks...');
+
       const response = await fetch('/api/tasks', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           name: data.name,
@@ -201,48 +224,87 @@ export default function CreateTaskDialog({ addTask, currentUser }: CreateTaskDia
         }),
       });
 
+      console.log('Response status:', response.status);
+
       const result = await response.json();
 
-      if (response.ok) {
+      // Handle unauthorized/expired token
+      if (response.status === 401) {
+        setIsLoading(false);
+        setIsOpen(false);
+        // Clear invalid token
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        toast({
+          title: 'Session Expired',
+          description: 'Your session has expired. Please log in again.',
+          variant: 'destructive',
+        });
+        // Redirect to login
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 1500);
+        return;
+      }
+
+      if (response.ok && result.task) {
+        // Use the task returned from the API with proper _id
+        const apiTask = result.task;
         const newTask: Task = {
-          id: generateUniqueId(data.vertex, data.category, data.name),
-          name: data.name,
-          assignedTo: data.assignedTo,
-          status: 'Not Started',
-          progress: 0,
-          startDate: data.startDate,
-          endDate: data.endDate,
-          createdDate: format(new Date(), 'yyyy-MM-dd'),
-          client: data.client,
-          clientEmail: data.clientEmail,
-          assigneeEmail: data.assigneeEmail,
-          vertex: data.vertex,
-          typeOfWork: data.typeOfWork,
-          category: data.category,
-          workingHours: data.workingHours,
-          estimatedCost: data.estimatedCost,
-          priority: data.priority,
+          id: apiTask._id || apiTask.id,
+          _id: apiTask._id,
+          name: apiTask.name,
+          assignedTo: apiTask.assignedToName || apiTask.assignedTo?.name || data.assignedTo,
+          status: apiTask.status || 'Not Started',
+          progress: apiTask.progress || 0,
+          startDate: apiTask.startDate?.split('T')[0] || data.startDate,
+          endDate: apiTask.endDate?.split('T')[0] || data.endDate,
+          createdDate: apiTask.createdDate?.split('T')[0] || format(new Date(), 'yyyy-MM-dd'),
+          client: apiTask.client || data.client,
+          clientEmail: apiTask.clientEmail || data.clientEmail,
+          assigneeEmail: apiTask.assigneeEmail || data.assigneeEmail,
+          vertex: apiTask.vertex || data.vertex,
+          typeOfWork: apiTask.typeOfWork || data.typeOfWork,
+          category: apiTask.category || data.category,
+          workingHours: apiTask.workingHours || data.workingHours,
+          estimatedCost: apiTask.estimatedCost || data.estimatedCost,
+          priority: apiTask.priority || data.priority,
         };
 
         addTask(newTask);
 
-        // Emit realtime event
-        emitTaskCreated(newTask);
+        // Emit realtime event with the API task - use setTimeout to ensure it's processed
+        setTimeout(() => {
+          emitTaskCreated(newTask);
+          console.log('Task created event emitted:', newTask);
+        }, 100);
 
         toast({
           title: 'Task Created!',
-          description: `Task "${data.name}" has been created successfully.`,
+          description: `Task "${data.name}" has been created successfully and assigned to ${data.assignedTo}.`,
         });
       } else {
         throw new Error(result.error || 'Failed to create task');
       }
     } catch (error) {
       console.error('Error creating task:', error);
+
+      // Check if it's a network error
+      let errorMessage = 'Failed to create task. Please try again.';
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        errorMessage = 'Cannot connect to server. Please ensure the server is running on port 9002.';
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+
       toast({
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to create task. Please try again.',
+        description: errorMessage,
         variant: 'destructive',
       });
+
+      setIsLoading(false);
+      return; // Don't close dialog on error so user can retry
     }
     
     // Simulate sending emails

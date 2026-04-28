@@ -2,9 +2,9 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import type { Task, Vertices, User, ClientStakeholder, TeamMember, TaskStatus } from '@/lib/types';
+import type { Task, Vertices, User, ClientStakeholder, TeamMember, TaskStatus } from '@/types';
 import { MOCK_TASKS, MOCK_VERTICES, MOCK_CLIENTS, TEAM_MEMBERS } from '@/lib/mock-data';
-import { TASK_STATUSES } from '@/lib/types';
+import { TASK_STATUSES } from '@/lib/constants';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -148,7 +148,7 @@ export default function ReportsPage({ currentUser }: ReportsPageProps) {
     };
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-9">
             {/* Professional Header with Sophisticated Design */}
             <div className="bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-indigo-950/30 rounded-2xl p-8 border border-slate-200/50 dark:border-slate-700/50 shadow-lg">
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">

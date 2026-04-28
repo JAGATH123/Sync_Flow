@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import type { User, Task } from '@/lib/types';
+import { useState, useEffect, useCallback } from 'react';
+import type { User, Task } from '@/types';
 import { MOCK_TASKS } from '@/lib/mock-data';
+import { useRealtime } from '@/lib/realtime';
 import {
   Eye,
   FileText,
@@ -25,7 +26,7 @@ import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { COST_RATES } from '@/lib/types';
+import { COST_RATES } from '@/lib/constants';
 import BroadcastMessages from './broadcast-messages';
 import BroadcastingPage from './broadcasting-page';
 
@@ -42,14 +43,69 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
   const [viewHistory, setViewHistory] = useState<ClientView[]>(['my-projects']);
   const [myProjects, setMyProjects] = useState<Task[]>([]);
 
-  useEffect(() => {
-    // Initialize data in sessionStorage if it doesn't exist
-    if (!sessionStorage.getItem('tasks')) {
-      sessionStorage.setItem('tasks', JSON.stringify(MOCK_TASKS));
-    }
-    const allTasks = JSON.parse(sessionStorage.getItem('tasks')!);
-    setTasks(allTasks);
+  const fetchTasks = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
 
+      if (!token) {
+        console.warn('No token found, redirecting to login');
+        window.location.href = '/login';
+        return;
+      }
+
+      const response = await fetch('/api/tasks', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 401) {
+        // Token expired or invalid
+        console.warn('Token expired, clearing auth and redirecting to login');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+        return;
+      }
+
+      if (response.ok) {
+        const result = await response.json();
+
+        if (result.success && result.tasks) {
+          // Convert API tasks to frontend format
+          const formattedTasks = result.tasks.map((task: any) => ({
+            ...task,
+            id: task._id,
+            assignedTo: task.assignedToName || task.assignedTo?.name || task.assignedTo,
+            startDate: task.startDate?.split('T')[0] || task.startDate,
+            endDate: task.endDate?.split('T')[0] || task.endDate,
+            createdDate: task.createdDate?.split('T')[0] || task.createdDate,
+            completionDate: task.completionDate ? task.completionDate.split('T')[0] : undefined
+          }));
+
+          setTasks(formattedTasks);
+
+          // Filter tasks for current client based on vertex, email, or client name
+          if (authUser) {
+            const clientTasks = formattedTasks.filter((task: any) =>
+              task.vertex === authUser.vertex ||
+              task.clientEmail === authUser.email ||
+              (task.client && authUser.name && task.client.toLowerCase().includes(authUser.name.toLowerCase()))
+            );
+            setMyProjects(clientTasks);
+          }
+        }
+      } else {
+        console.error('Failed to fetch tasks:', response.status);
+      }
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
+    }
+  }, [authUser]);
+
+  useEffect(() => {
     // Convert auth user to User type for compatibility
     if (authUser) {
       const user: User = {
@@ -59,16 +115,28 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
       };
       setCurrentUser(user);
 
-      // Filter tasks for current client's vertex or email
-      const clientTasks = allTasks.filter((task: Task) =>
-        task.vertex === authUser.vertex ||
-        task.clientEmail === authUser.email ||
-        task.client.toLowerCase().includes(authUser.name.toLowerCase())
-      );
-      setMyProjects(clientTasks);
+      // Fetch tasks from API
+      fetchTasks();
     }
-
   }, [authUser]);
+
+  // Subscribe to real-time task updates
+  useEffect(() => {
+    const unsubscribe1 = useRealtime('task_created', (event) => {
+      console.log('Task created event received in client dashboard:', event);
+      fetchTasks(); // Refresh tasks when a new task is created
+    });
+
+    const unsubscribe2 = useRealtime('task_updated', (event) => {
+      console.log('Task updated event received in client dashboard:', event);
+      fetchTasks(); // Refresh tasks when a task is updated
+    });
+
+    return () => {
+      if (typeof unsubscribe1 === 'function') unsubscribe1();
+      if (typeof unsubscribe2 === 'function') unsubscribe2();
+    };
+  }, [fetchTasks]);
 
   const handleSetView = (view: ClientView) => {
     setViewHistory(prev => [...prev, view]);
@@ -109,7 +177,12 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
     return (task.actualWorkingHours || task.workingHours) * rate;
   };
 
-  const renderMyProjects = () => (
+  const renderMyProjects = () => {
+    // Filter tasks that need client review
+    const tasksNeedingReview = myProjects.filter(task => task.reviewStatus === 'Client Review');
+    const otherProjects = myProjects.filter(task => task.reviewStatus !== 'Client Review');
+
+    return (
     <div className="space-y-6">
       {/* Broadcast Messages */}
       <BroadcastMessages userRole="client" userName={currentUser?.name} />
@@ -141,10 +214,127 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
               <div className="text-2xl font-bold text-blue-600">{myProjects.filter(p => p.status === 'Delivered').length}</div>
               <div className="text-xs text-muted-foreground">Completed</div>
             </div>
+            <div className="text-center p-3 bg-white/80 dark:bg-gray-900/80 rounded-lg border border-orange-200 dark:border-orange-800">
+              <div className="text-2xl font-bold text-orange-600">{tasksNeedingReview.length}</div>
+              <div className="text-xs text-muted-foreground">Pending Review</div>
+            </div>
           </div>
         </div>
       </div>
 
+      {/* Pending Your Review Section */}
+      {tasksNeedingReview.length > 0 && (
+        <div className="space-y-4">
+          <div className="bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-950/20 dark:to-red-950/20 rounded-xl p-4 border-2 border-orange-300 dark:border-orange-700">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg shadow-lg">
+                <MessageSquare className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">
+                  Pending Your Review
+                </h2>
+                <p className="text-orange-700 dark:text-orange-300 text-sm">
+                  {tasksNeedingReview.length} {tasksNeedingReview.length === 1 ? 'project needs' : 'projects need'} your review and approval
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-4">
+              {tasksNeedingReview.map((task) => (
+                <Card key={task.id} className="border-2 border-orange-400 dark:border-orange-600 bg-white dark:bg-gray-950 shadow-lg hover:shadow-xl transition-all">
+                  <CardHeader className="pb-3">
+                    <div className="flex justify-between items-start">
+                      <div className="space-y-2 flex-1">
+                        <div className="flex items-center gap-2">
+                          <Badge className="bg-orange-600 text-white hover:bg-orange-700 animate-pulse">
+                            REVIEW NEEDED
+                          </Badge>
+                        </div>
+                        <CardTitle className="text-lg">{task.name}</CardTitle>
+                        <CardDescription>{task.category}</CardDescription>
+                        <div className="flex gap-2 flex-wrap">
+                          <Badge className={cn('text-xs', getPriorityBadgeClass(task.priority))}>
+                            {task.priority} Priority
+                          </Badge>
+                          <Badge className={cn('text-xs', getStatusBadgeClass(task.status))}>
+                            {task.status}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {task.typeOfWork}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-muted-foreground">Cost</p>
+                        <p className="text-lg font-bold">₹{calculateProjectCost(task).toLocaleString('en-IN')}</p>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Assigned To:</span>
+                          <p className="font-medium">{task.assignedTo}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Vertex:</span>
+                          <p className="font-medium">{task.vertex}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Start Date:</span>
+                          <p className="font-medium">{format(parseISO(task.startDate), 'MMM d, yyyy')}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Due Date:</span>
+                          <p className="font-medium">{format(parseISO(task.endDate), 'MMM d, yyyy')}</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Progress</span>
+                          <span className="font-medium">{task.progress}%</span>
+                        </div>
+                        <Progress value={task.progress} className="h-2" />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Estimated Hours:</span>
+                          <p className="font-medium">{task.workingHours}h</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Actual Hours:</span>
+                          <p className="font-medium">{task.actualWorkingHours || 0}h</p>
+                        </div>
+                      </div>
+
+                      {task.remarks && (
+                        <div>
+                          <span className="text-muted-foreground text-sm">Remarks:</span>
+                          <p className="text-sm bg-secondary/50 p-2 rounded mt-1">{task.remarks}</p>
+                        </div>
+                      )}
+
+                      <div className="pt-2">
+                        <div className="bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 rounded-lg p-3">
+                          <p className="text-sm font-medium text-orange-900 dark:text-orange-200">
+                            ⚠️ This task has been completed and is awaiting your review. Please check the deliverables and provide your feedback.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* All Other Projects Section */}
       {myProjects.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center">
@@ -153,87 +343,99 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
             <p className="text-muted-foreground">No projects are currently associated with your account.</p>
           </CardContent>
         </Card>
-      ) : (
-        <div className="grid gap-4">
-          {myProjects.map((task) => (
-            <Card key={task.id} className="hover:shadow-md transition-shadow">
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div className="space-y-2">
-                    <CardTitle className="text-lg">{task.name}</CardTitle>
-                    <CardDescription>{task.category}</CardDescription>
-                    <div className="flex gap-2">
-                      <Badge className={cn('text-xs', getPriorityBadgeClass(task.priority))}>
-                        {task.priority} Priority
-                      </Badge>
-                      <Badge className={cn('text-xs', getStatusBadgeClass(task.status))}>
-                        {task.status}
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {task.typeOfWork}
-                      </Badge>
+      ) : otherProjects.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <h2 className="text-xl font-bold">All Projects</h2>
+            <Badge variant="secondary">{otherProjects.length}</Badge>
+          </div>
+          <div className="grid gap-4">
+            {otherProjects.map((task) => (
+              <Card key={task.id} className="hover:shadow-md transition-shadow">
+                <CardHeader>
+                  <div className="flex justify-between items-start">
+                    <div className="space-y-2">
+                      <CardTitle className="text-lg">{task.name}</CardTitle>
+                      <CardDescription>{task.category}</CardDescription>
+                      <div className="flex gap-2 flex-wrap">
+                        <Badge className={cn('text-xs', getPriorityBadgeClass(task.priority))}>
+                          {task.priority} Priority
+                        </Badge>
+                        <Badge className={cn('text-xs', getStatusBadgeClass(task.status))}>
+                          {task.status}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {task.typeOfWork}
+                        </Badge>
+                        {task.reviewStatus && (
+                          <Badge className="text-xs bg-purple-600 text-white hover:bg-purple-700">
+                            {task.reviewStatus}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">Cost</p>
+                      <p className="text-lg font-bold">₹{calculateProjectCost(task).toLocaleString('en-IN')}</p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm text-muted-foreground">Cost</p>
-                    <p className="text-lg font-bold">₹{calculateProjectCost(task).toLocaleString('en-IN')}</p>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Assigned To:</span>
-                      <p className="font-medium">{task.assignedTo}</p>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Assigned To:</span>
+                        <p className="font-medium">{task.assignedTo}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Vertex:</span>
+                        <p className="font-medium">{task.vertex}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Start Date:</span>
+                        <p className="font-medium">{format(parseISO(task.startDate), 'MMM d, yyyy')}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Due Date:</span>
+                        <p className="font-medium">{format(parseISO(task.endDate), 'MMM d, yyyy')}</p>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-muted-foreground">Vertex:</span>
-                      <p className="font-medium">{task.vertex}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Start Date:</span>
-                      <p className="font-medium">{format(parseISO(task.startDate), 'MMM d, yyyy')}</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Due Date:</span>
-                      <p className="font-medium">{format(parseISO(task.endDate), 'MMM d, yyyy')}</p>
-                    </div>
-                  </div>
 
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Progress</span>
-                      <span className="font-medium">{task.progress}%</span>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Progress</span>
+                        <span className="font-medium">{task.progress}%</span>
+                      </div>
+                      <Progress value={task.progress} className="h-2" />
                     </div>
-                    <Progress value={task.progress} className="h-2" />
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Estimated Hours:</span>
-                      <p className="font-medium">{task.workingHours}h</p>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Estimated Hours:</span>
+                        <p className="font-medium">{task.workingHours}h</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Actual Hours:</span>
+                        <p className="font-medium">{task.actualWorkingHours || 0}h</p>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-muted-foreground">Actual Hours:</span>
-                      <p className="font-medium">{task.actualWorkingHours || 0}h</p>
-                    </div>
-                  </div>
 
-                  {task.remarks && (
-                    <div>
-                      <span className="text-muted-foreground text-sm">Remarks:</span>
-                      <p className="text-sm bg-secondary/50 p-2 rounded mt-1">{task.remarks}</p>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                    {task.remarks && (
+                      <div>
+                        <span className="text-muted-foreground text-sm">Remarks:</span>
+                        <p className="text-sm bg-secondary/50 p-2 rounded mt-1">{task.remarks}</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   const renderProjectStatus = () => {
     const completedProjects = myProjects.filter(task => task.status === 'Delivered').length;
@@ -465,13 +667,16 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
          <SidebarHeader>
            <div className="flex justify-between items-center p-4">
               <div className="w-32 group-data-[collapsible=icon]:hidden">
-                 <h2 className="text-2xl font-bold tracking-wider text-sidebar-foreground">CLIENT</h2>
+                 <h2 className="text-2xl font-bold tracking-wider text-sidebar-foreground">SyncFlow</h2>
               </div>
               <SidebarTrigger />
            </div>
+           <div className="px-4 pb-4 group-data-[collapsible=icon]:hidden">
+             <div className="h-px bg-border"></div>
+           </div>
          </SidebarHeader>
          <SidebarContent>
-           <SidebarMenu>
+           <SidebarMenu className="gap-1 px-2">
             <SidebarMenuItem>
               <SidebarMenuButton onClick={() => handleSetView('my-projects')} isActive={activeView === 'my-projects'} tooltip="My Projects">
                 <Eye />
@@ -494,14 +699,22 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
          </SidebarContent>
          <SidebarFooter>
             <div className="p-4 group-data-[collapsible=icon]:hidden">
-              <Clock />
+              <div className="flex flex-col items-center justify-center space-y-3">
+                <p className="text-sm font-bold text-muted-foreground tracking-widest uppercase font-orbitron">Developed By</p>
+                <img
+                  src="/LOF_alternate.png"
+                  alt="LOF Logo"
+                  className="h-12 w-auto object-contain"
+                />
+              </div>
             </div>
          </SidebarFooter>
       </Sidebar>
 
       <SidebarInset>
         <div className="w-full p-4 sm:p-6">
-          <header className="flex justify-end mb-6">
+          <header className="flex justify-between items-center mb-6">
+            <Clock />
             <div className="flex items-center gap-4">
               <Notifications />
               <UserMenu />

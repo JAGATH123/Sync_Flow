@@ -25,11 +25,13 @@ export async function GET(request: NextRequest) {
 
     // Role-based filtering
     if (currentUser.role === 'client') {
-      // Clients can only see tasks from their vertex
+      // Clients can see tasks from their vertex, or tasks assigned to them by email or name
       const user = await User.findById(currentUser.userId);
-      if (user?.vertex) {
-        filter.vertex = user.vertex;
-      }
+      filter.$or = [
+        { vertex: user?.vertex },
+        { clientEmail: user?.email },
+        { client: { $regex: new RegExp(user?.name || '', 'i') } }
+      ];
     } else if (currentUser.role === 'user') {
       // Users can see all tasks, but we might want to limit this in the future
     }
@@ -127,6 +129,9 @@ export async function POST(request: NextRequest) {
       completionDate: populatedTask.completionDate ? populatedTask.completionDate.toISOString() : undefined,
     };
 
+    // Note: Real-time event emission happens on client side in create-task-dialog.tsx
+    // This ensures the event is properly broadcast using BroadcastChannel
+
     return NextResponse.json({
       success: true,
       task: responseTask,
@@ -202,6 +207,10 @@ export async function PUT(request: NextRequest) {
 
     if (status) {
       updateData.status = status;
+      // Set completion date when status is changed to Delivered
+      if (status === 'Delivered' && !task.completionDate) {
+        updateData.completionDate = new Date();
+      }
     }
 
     if (remarks !== undefined) {

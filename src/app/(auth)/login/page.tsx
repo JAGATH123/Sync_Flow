@@ -92,37 +92,41 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-secondary/40 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-lg">
         {/* Login Form */}
-        <Card>
-          <CardHeader className="text-center pb-14 pt-14">
-            <div className="flex flex-col items-center mb-6">
-              <Image
-                src="/toprocklogo.png"
-                alt="Toprock Logo"
-                width={130}
-                height={130}
-                className="mb-0"
-                priority
-              />
+        <Card className="p-4">
+          <CardHeader className="text-center pb-10 pt-10">
+            <div className="flex flex-col items-center justify-center gap-8">
+              <div className="w-full flex items-center justify-center">
+                <Image
+                  src="/logo_lof.png"
+                  alt="LOF Logo"
+                  width={200}
+                  height={200}
+                  className="object-contain"
+                  priority
+                />
+              </div>
+              <div className="space-y-3">
+                <CardTitle className="text-4xl font-bold tracking-tight">SyncFlow</CardTitle>
+                <CardDescription className="text-lg">
+                  Sign in to your account
+                </CardDescription>
+              </div>
             </div>
-            <CardTitle className="text-3xl font-bold tracking-tight mb-0">SyncFlow</CardTitle>
-            <CardDescription className="text-base">
-              Sign in to your account
-            </CardDescription>
           </CardHeader>
 
           <form onSubmit={handleSubmit}>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6 px-8">
               {error && (
                 <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertCircle className="h-5 w-5" />
+                  <AlertDescription className="text-base">{error}</AlertDescription>
                 </Alert>
               )}
 
-              <div className="space-y-0">
-                <Label htmlFor="email">Email</Label>
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-base">Email</Label>
                 <Input
                   id="email"
                   name="email"
@@ -132,11 +136,12 @@ export default function LoginPage() {
                   onChange={handleChange}
                   disabled={isLoading}
                   required
+                  className="h-12 text-base"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password" className="text-base">Password</Label>
                 <div className="relative">
                   <Input
                     id="password"
@@ -147,6 +152,7 @@ export default function LoginPage() {
                     onChange={handleChange}
                     disabled={isLoading}
                     required
+                    className="h-12 text-base pr-12"
                   />
                   <Button
                     type="button"
@@ -157,24 +163,24 @@ export default function LoginPage() {
                     disabled={isLoading}
                   >
                     {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
+                      <EyeOff className="h-5 w-5" />
                     ) : (
-                      <Eye className="h-4 w-4" />
+                      <Eye className="h-5 w-5" />
                     )}
                   </Button>
                 </div>
               </div>
             </CardContent>
 
-            <CardFooter className="flex flex-col space-y-4">
+            <CardFooter className="flex flex-col space-y-4 px-8 pb-8">
               <Button
                 type="submit"
-                className="w-full"
+                className="w-full h-12 text-base"
                 disabled={isLoading}
               >
                 {isLoading ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                     Signing in...
                   </>
                 ) : (

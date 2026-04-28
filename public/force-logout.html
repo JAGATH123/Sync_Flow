@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Force Logout</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            text-align: center;
+            max-width: 400px;
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .success {
+            color: #28a745;
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+        .info {
+            color: #666;
+            margin: 20px 0;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Clearing Session</h1>
+        <div class="spinner"></div>
+        <p class="info">Removing expired authentication data...</p>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // Clear all authentication data
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        localStorage.removeItem('authToken');
+        sessionStorage.clear();
+
+        // Show success message
+        setTimeout(() => {
+            document.querySelector('.spinner').style.display = 'none';
+            document.getElementById('status').innerHTML = `
+                <div class="success">✅ Session cleared successfully!</div>
+                <p class="info">Redirecting to login page...</p>
+            `;
+        }, 1000);
+
+        // Redirect to login
+        setTimeout(() => {
+            window.location.href = '/login';
+        }, 2000);
+    </script>
+</body>
+</html>

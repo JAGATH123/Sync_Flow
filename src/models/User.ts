@@ -1,6 +1,6 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcryptjs';
-import type { UserRole } from '@/lib/types';
+import type { UserRole } from '@/types';
 
 export interface IUser extends Document {
   _id: string;
@@ -76,6 +76,7 @@ const UserSchema = new Schema<IUser>({
   }
 }, {
   timestamps: true,
+  strict: false, // Allow additional fields for broadcast storage
   toJSON: {
     transform: function(doc, ret) {
       delete ret.password;

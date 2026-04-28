@@ -1,9 +1,9 @@
 'use client';
 
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/features/auth/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import ClientDashboard from '@/components/client-dashboard';
+import ClientDashboard from '@/components/layout/client-dashboard';
 
 export default function ClientPage() {
   const { user, isLoading } = useAuth();

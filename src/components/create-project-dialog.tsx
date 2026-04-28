@@ -35,8 +35,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { PlusCircle, Loader2 } from 'lucide-react';
 import { add, format } from 'date-fns';
-import type { Project, Vertices, WorkType } from '@/lib/types';
-import { WORK_TYPES } from '@/lib/types';
+import type { Project, Vertices, WorkType } from '@/types';
+import { WORK_TYPES } from '@/lib/constants';
 import { MOCK_VERTICES } from '@/lib/mock-data';
 import { ScrollArea } from './ui/scroll-area';
 

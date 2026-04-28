@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token Verification & Fix</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button.danger {
+            background: #dc3545;
+        }
+        button.danger:hover {
+            background: #c82333;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .info {
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🔧 Token Verification & Repair Tool</h1>
+        <p class="info">This tool checks if your authentication token is properly stored and working.</p>
+    </div>
+
+    <div class="card">
+        <h2>Step 1: Check Current Status</h2>
+        <div id="status-check"></div>
+        <button onclick="checkStatus()">Check Status</button>
+    </div>
+
+    <div class="card">
+        <h2>Step 2: Verify Token with API</h2>
+        <div id="api-check"></div>
+        <button onclick="testAPI()">Test API Connection</button>
+    </div>
+
+    <div class="card">
+        <h2>Step 3: Actions</h2>
+        <button onclick="location.href='/'">Go to Dashboard</button>
+        <button onclick="location.href='/login'">Go to Login</button>
+        <button class="danger" onclick="forceLogout()">Force Logout & Clear</button>
+    </div>
+
+    <script>
+        function checkStatus() {
+            const container = document.getElementById('status-check');
+            const token = localStorage.getItem('token');
+            const user = localStorage.getItem('user');
+            const oldToken = localStorage.getItem('authToken');
+
+            let html = '';
+
+            if (token) {
+                html += `<div class="status success">✅ Token found in localStorage</div>`;
+                html += `<pre>Token: ${token.substring(0, 50)}...</pre>`;
+            } else {
+                html += `<div class="status error">❌ No token found in localStorage['token']</div>`;
+            }
+
+            if (oldToken) {
+                html += `<div class="status warning">⚠️ Old 'authToken' key found - This needs to be removed!</div>`;
+                html += `<button onclick="migrateToken()">Migrate to New Token</button>`;
+            }
+
+            if (user) {
+                try {
+                    const userData = JSON.parse(user);
+                    html += `<div class="status success">✅ User data found</div>`;
+                    html += `<pre>${JSON.stringify(userData, null, 2)}</pre>`;
+                } catch (e) {
+                    html += `<div class="status error">❌ User data is corrupted</div>`;
+                }
+            } else {
+                html += `<div class="status error">❌ No user data found</div>`;
+            }
+
+            container.innerHTML = html;
+        }
+
+        async function testAPI() {
+            const container = document.getElementById('api-check');
+            container.innerHTML = '<div class="status">🔄 Testing API connection...</div>';
+
+            const token = localStorage.getItem('token');
+
+            if (!token) {
+                container.innerHTML = '<div class="status error">❌ Cannot test API - No token found! Please log in first.</div>';
+                return;
+            }
+
+            try {
+                // Test GET request
+                console.log('Testing GET /api/tasks');
+                const getResponse = await fetch('/api/tasks', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const getData = await getResponse.json();
+                console.log('GET Response:', getData);
+
+                let html = '';
+
+                if (getResponse.ok) {
+                    html += `<div class="status success">✅ GET /api/tasks - Success (${getResponse.status})</div>`;
+                    html += `<pre>${JSON.stringify(getData, null, 2).substring(0, 500)}...</pre>`;
+                } else {
+                    html += `<div class="status error">❌ GET /api/tasks - Failed (${getResponse.status})</div>`;
+                    html += `<pre>${JSON.stringify(getData, null, 2)}</pre>`;
+                    html += `<p>The token might be invalid or expired. Try logging in again.</p>`;
+                }
+
+                // Test POST request with minimal data
+                console.log('Testing POST /api/tasks');
+                const postResponse = await fetch('/api/tasks', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name: 'TEST - Please delete this task',
+                        client: 'Test Client',
+                        clientEmail: 'test@example.com',
+                        assignedTo: 'Test User',
+                        assigneeEmail: 'user@example.com',
+                        vertex: 'CMIS',
+                        typeOfWork: 'Development',
+                        category: 'Testing',
+                        startDate: new Date().toISOString().split('T')[0],
+                        endDate: new Date(Date.now() + 7*24*60*60*1000).toISOString().split('T')[0],
+                        workingHours: 1,
+                        estimatedCost: 85,
+                        priority: 'Low'
+                    })
+                });
+
+                const postData = await postResponse.json();
+                console.log('POST Response:', postData);
+
+                if (postResponse.ok) {
+                    html += `<div class="status success">✅ POST /api/tasks - Success (${postResponse.status})</div>`;
+                    html += `<pre>${JSON.stringify(postData, null, 2)}</pre>`;
+                    html += `<p><strong>Great! Task creation is working. You can now create tasks normally.</strong></p>`;
+                } else {
+                    html += `<div class="status error">❌ POST /api/tasks - Failed (${postResponse.status})</div>`;
+                    html += `<pre>${JSON.stringify(postData, null, 2)}</pre>`;
+
+                    if (postData.error === 'Unauthorized') {
+                        html += `<div class="status warning">
+                            <p><strong>Diagnosis: Token is not being accepted by the server</strong></p>
+                            <p>Possible causes:</p>
+                            <ul>
+                                <li>Token has expired</li>
+                                <li>Token format is incorrect</li>
+                                <li>Server JWT_SECRET has changed</li>
+                            </ul>
+                            <p><strong>Solution: Please log out and log in again</strong></p>
+                            <button class="danger" onclick="forceLogout()">Logout & Clear Data</button>
+                        </div>`;
+                    } else if (postData.error === 'Assigned user not found') {
+                        html += `<div class="status warning">
+                            <p><strong>The token works, but the test user doesn't exist in the database.</strong></p>
+                            <p>This is OK - your authentication is working correctly!</p>
+                            <p>Just use real user names when creating tasks.</p>
+                        </div>`;
+                    }
+                }
+
+                container.innerHTML = html;
+
+            } catch (error) {
+                container.innerHTML = `<div class="status error">❌ Network Error: ${error.message}</div>`;
+            }
+        }
+
+        function migrateToken() {
+            const oldToken = localStorage.getItem('authToken');
+            const currentToken = localStorage.getItem('token');
+
+            if (oldToken && !currentToken) {
+                localStorage.setItem('token', oldToken);
+                localStorage.removeItem('authToken');
+                alert('✅ Token migrated successfully!');
+            } else {
+                localStorage.removeItem('authToken');
+                alert('✅ Old token removed!');
+            }
+
+            checkStatus();
+        }
+
+        function forceLogout() {
+            if (confirm('This will clear all authentication data. Continue?')) {
+                localStorage.clear();
+                sessionStorage.clear();
+                alert('✅ All data cleared. Redirecting to login...');
+                setTimeout(() => {
+                    location.href = '/login';
+                }, 1000);
+            }
+        }
+
+        // Auto-check on load
+        window.onload = () => {
+            checkStatus();
+        };
+    </script>
+</body>
+</html>

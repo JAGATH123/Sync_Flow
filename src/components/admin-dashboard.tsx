@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import type { User, Task, TeamMember } from '@/lib/types';
+import type { User, Task, TeamMember } from '@/types';
 import { ALL_USERS, MOCK_VERTICES, TEAM_MEMBERS } from '@/lib/mock-data';
 import { MOCK_TASKS } from '@/lib/mock-data';
 import {
@@ -47,30 +47,39 @@ export default function AdminDashboard({ currentUser: authUser }: AdminDashboard
 
   const fetchTasks = async () => {
     try {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('token');
+
+      if (!token) {
+        console.warn('No token found, redirecting to login');
+        window.location.href = '/login';
+        return;
+      }
+
       const response = await fetch('/api/tasks', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          ...(token && { 'Authorization': `Bearer ${token}` }),
+          'Authorization': `Bearer ${token}`,
         },
       });
+
+      if (response.status === 401) {
+        // Token expired or invalid
+        console.warn('Token expired, clearing auth and redirecting to login');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+        return;
+      }
 
       if (response.ok) {
         const result = await response.json();
         setTasks(result.tasks);
       } else {
-        // Fallback to mock data if API fails
-        const mockTasks = MOCK_TASKS;
-        setTasks(mockTasks);
-        sessionStorage.setItem('tasks', JSON.stringify(mockTasks));
+        console.error('Failed to fetch tasks:', response.status);
       }
     } catch (error) {
       console.error('Error fetching tasks:', error);
-      // Fallback to mock data
-      const mockTasks = MOCK_TASKS;
-      setTasks(mockTasks);
-      sessionStorage.setItem('tasks', JSON.stringify(mockTasks));
     }
   };
 
@@ -107,15 +116,23 @@ export default function AdminDashboard({ currentUser: authUser }: AdminDashboard
   }, [authUser]);
 
   // Listen for real-time task events
-  useRealtime('task_created', (event) => {
-    console.log('Task created event received in admin:', event);
-    fetchTasks(); // Re-fetch tasks when new task is created
-  });
+  useEffect(() => {
+    const unsubscribe1 = useRealtime('task_created', (event) => {
+      console.log('Task created event received in admin:', event);
+      fetchTasks(); // Re-fetch tasks when new task is created
+    });
 
-  useRealtime('task_updated', (event) => {
-    console.log('Task updated event received in admin:', event);
-    fetchTasks(); // Re-fetch tasks when task is updated
-  });
+    const unsubscribe2 = useRealtime('task_updated', (event) => {
+      console.log('Task updated event received in admin:', event);
+      fetchTasks(); // Re-fetch tasks when task is updated
+    });
+
+    return () => {
+      if (typeof unsubscribe1 === 'function') unsubscribe1();
+      if (typeof unsubscribe2 === 'function') unsubscribe2();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // fetchTasks is stable, no need to add as dependency
 
   const handleSetView = (view: AdminView) => {
     setViewHistory(prev => [...prev, view]);
@@ -139,13 +156,15 @@ export default function AdminDashboard({ currentUser: authUser }: AdminDashboard
   };
 
   const addTask = (newTask: Task) => {
-    // Just update local state - the real-time event will trigger a refresh
+    // Update local state immediately for better UX
     setTasks(prevTasks => [...prevTasks, newTask]);
+    // Also refresh from API to ensure we have the latest data
+    setTimeout(() => fetchTasks(), 500);
   };
 
   const updateTask = async (updatedTask: Task) => {
     try {
-      const token = localStorage.getItem('authToken');
+      const token = localStorage.getItem('token');
       const taskId = updatedTask._id || updatedTask.id;
 
       if (!taskId) {
@@ -174,9 +193,12 @@ export default function AdminDashboard({ currentUser: authUser }: AdminDashboard
         const result = await response.json();
         // Update local state with the response from API
         setTasks(prevTasks =>
-          prevTasks.map((task) =>
-            (task.id === result.task.id || task._id === result.task._id) ? result.task : task
-          )
+          prevTasks.map((task) => {
+            const taskIdMatch = task.id === result.task.id ||
+                               task._id === result.task._id ||
+                               task._id?.toString() === result.task._id?.toString();
+            return taskIdMatch ? result.task : task;
+          })
         );
       } else {
         console.error('Failed to update task:', await response.text());
@@ -232,13 +254,16 @@ export default function AdminDashboard({ currentUser: authUser }: AdminDashboard
          <SidebarHeader>
            <div className="flex justify-between items-center p-4">
               <div className="w-32 group-data-[collapsible=icon]:hidden">
-                 <h2 className="text-2xl font-bold tracking-wider text-sidebar-foreground">ADMIN</h2>
+                 <h2 className="text-2xl font-bold tracking-wider text-sidebar-foreground">SyncFlow</h2>
               </div>
               <SidebarTrigger />
            </div>
+           <div className="px-4 pb-4 group-data-[collapsible=icon]:hidden">
+             <div className="h-px bg-border"></div>
+           </div>
          </SidebarHeader>
          <SidebarContent>
-           <SidebarMenu>
+           <SidebarMenu className="gap-1 px-2">
             <SidebarMenuItem>
               <SidebarMenuButton onClick={() => handleSetView('overview')} isActive={activeView === 'overview'} tooltip="Overview">
                 <PieChart />
@@ -291,21 +316,29 @@ export default function AdminDashboard({ currentUser: authUser }: AdminDashboard
          </SidebarContent>
          <SidebarFooter>
             <div className="p-4 group-data-[collapsible=icon]:hidden">
-              <Clock />
+              <div className="flex flex-col items-center justify-center space-y-3">
+                <p className="text-sm font-bold text-muted-foreground tracking-widest uppercase font-orbitron">Developed By</p>
+                <img
+                  src="/LOF_alternate.png"
+                  alt="LOF Logo"
+                  className="h-12 w-auto object-contain"
+                />
+              </div>
             </div>
          </SidebarFooter>
       </Sidebar>
 
       <SidebarInset>
         <div className="w-full p-4 sm:p-6">
-          <header className="flex justify-end">
+          <header className="flex justify-between items-center mb-6">
+            <Clock />
             <div className="flex items-center gap-4">
               <LiveUsersIndicator />
               <Notifications />
               <UserMenu />
             </div>
           </header>
-           <div className="mt-6">
+           <div>
               {renderContent()}
             </div>
         </div>

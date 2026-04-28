@@ -58,7 +58,7 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { PlusCircle, Edit, Trash2, Loader2, Users, Building } from 'lucide-react';
-import type { User, TeamMember, UserRole, ClientStakeholder, Vertices } from '@/lib/types';
+import type { User, TeamMember, UserRole, ClientStakeholder, Vertices } from '@/types';
 import { TEAM_MEMBERS as INITIAL_TEAM_MEMBERS, ALL_USERS as INITIAL_ALL_USERS, MOCK_CLIENTS, MOCK_VERTICES } from '@/lib/mock-data';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';

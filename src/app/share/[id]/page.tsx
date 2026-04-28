@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, use } from 'react';
-import type { Task, Vertices, TaskPriority, User } from '@/lib/types';
+import type { Task, Vertices, TaskPriority, User } from '@/types';
 import { MOCK_VERTICES } from '@/lib/mock-data';
 import {
   Table,
@@ -20,7 +20,7 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import TaskCard from '@/components/task-card';
+import TaskCard from '@/features/tasks/components/task-card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 

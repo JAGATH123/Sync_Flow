@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import type { User, Task, Vertices, TaskPriority, ClientStakeholder } from '@/lib/types';
+import type { User, Task, Vertices, TaskPriority, ClientStakeholder } from '@/types';
 import { MOCK_TASKS, MOCK_VERTICES, MOCK_CLIENTS as INITIAL_MOCK_CLIENTS } from '@/lib/mock-data';
 import {
   Table,
@@ -30,7 +30,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { ScrollArea } from './ui/scroll-area';
 import TaskCard from './task-card';
 import { Button } from './ui/button';
-import { COST_RATES } from '@/lib/types';
+import { COST_RATES } from '@/lib/constants';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Separator } from './ui/separator';
 import { useToast } from '@/hooks/use-toast';

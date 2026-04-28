@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import type { User } from '@/lib/types';
+import type { User } from '@/types';
 import { TEAM_MEMBERS } from '@/lib/mock-data';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
-import { emitBroadcastSent } from '@/lib/realtime';
+import { emitBroadcastSent, useRealtime } from '@/lib/realtime';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { cn } from '@/lib/utils';
 import {
@@ -155,21 +155,73 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
   const userRole = currentUser.role === 'admin' ? 'admin' :
                    currentUser.role === 'client' ? 'client' : 'user';
 
-  useEffect(() => {
-    // Load existing messages and channels
-    const storedMessages = sessionStorage.getItem('discordMessages');
-    const storedChannels = sessionStorage.getItem('discordChannels');
+  const fetchMessages = async () => {
+    try {
+      const token = localStorage.getItem('token');
 
-    if (storedMessages) {
-      setMessages(JSON.parse(storedMessages));
+      if (!token) {
+        console.warn('No token found');
+        return;
+      }
+
+      const response = await fetch('/api/broadcasts', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 401) {
+        console.warn('Token expired');
+        return;
+      }
+
+      if (response.ok) {
+        const result = await response.json();
+
+        if (result.success && result.broadcasts) {
+          // Convert broadcasts to messages format
+          const broadcastMessages: Message[] = result.broadcasts.map((broadcast: any) => ({
+            id: broadcast._id || `msg_${Date.now()}`,
+            content: broadcast.message,
+            author: {
+              name: broadcast.createdByName || 'System',
+              avatar: broadcast.createdByAvatar,
+              role: 'admin',
+              status: 'online' as const
+            },
+            channelId: broadcast.category || 'general',
+            timestamp: broadcast.createdDate || new Date().toISOString(),
+            pinned: false,
+            mentions: [],
+            reactions: [],
+            type: broadcast.category === 'announcements' ? 'announcement' as const : 'message' as const
+          }));
+
+          setMessages(broadcastMessages);
+          sessionStorage.setItem('discordMessages', JSON.stringify(broadcastMessages));
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching broadcasts:', error);
     }
+  };
+
+  useEffect(() => {
+    // Load channels
+    const storedChannels = sessionStorage.getItem('discordChannels');
 
     if (storedChannels) {
       setChannels(JSON.parse(storedChannels));
     } else {
       // Initialize default channels
       sessionStorage.setItem('discordChannels', JSON.stringify(DEFAULT_CHANNELS));
+      setChannels(DEFAULT_CHANNELS);
     }
+
+    // Fetch messages from API
+    fetchMessages();
 
     // Simulate online users
     const allUsers = TEAM_MEMBERS.map(member => member.name);
@@ -180,6 +232,19 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
     // Auto scroll to bottom when new messages arrive
     scrollToBottom();
   }, [messages, activeChannel]);
+
+  // Subscribe to real-time broadcast updates
+  useEffect(() => {
+    const unsubscribe = useRealtime('broadcast_sent', (event) => {
+      console.log('Broadcast received in broadcasting page:', event);
+      // Refresh messages when a new broadcast is sent
+      fetchMessages();
+    });
+
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -208,26 +273,52 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
     if (!newMessage.trim()) return;
 
     try {
+      const token = localStorage.getItem('token');
+
+      if (!token) {
+        toast({
+          title: 'Authentication Error',
+          description: 'Please log in again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       const response = await fetch('/api/broadcasts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           title: `Message in #${activeChannel}`,
           message: newMessage,
           category: activeChannel,
-          priority: 'Medium',
+          priority: activeChannel === 'announcements' ? 'High' : 'Medium',
           vertex: currentUser.vertex || 'CMIS',
         }),
       });
 
       const result = await response.json();
 
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        toast({
+          title: 'Session Expired',
+          description: 'Please log in again.',
+          variant: 'destructive',
+        });
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 1500);
+        return;
+      }
+
       if (response.ok) {
         // Create local message for immediate UI update
         const message: Message = {
-          id: `msg_${Date.now()}`,
+          id: result.broadcast._id || `msg_${Date.now()}`,
           content: newMessage,
           author: {
             name: currentUser.name,
@@ -250,12 +341,15 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
         setReplyingTo(null);
         setIsTyping(false);
 
-        // Emit realtime event
+        // Emit realtime event so all users see the message
         emitBroadcastSent(result.broadcast);
 
+        // Refresh messages to get the latest from DB
+        setTimeout(() => fetchMessages(), 500);
+
         toast({
-          title: 'Message sent',
-          description: 'Your message has been broadcast successfully.',
+          title: 'Message Broadcast',
+          description: 'Your message has been sent to all users.',
         });
       } else {
         throw new Error(result.error || 'Failed to send message');
@@ -298,9 +392,29 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
     });
   };
 
-  const handleDeleteMessage = (messageId: string) => {
-    const updatedMessages = messages.filter(msg => msg.id !== messageId);
-    saveMessages(updatedMessages);
+  const handleDeleteMessage = async (messageId: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`/api/broadcasts?id=${messageId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        // Remove from local state
+        const updatedMessages = messages.filter(msg => msg.id !== messageId);
+        saveMessages(updatedMessages);
+        // Refresh broadcasts from server
+        fetchMessages();
+      } else {
+        const data = await response.json();
+        console.error('Failed to delete broadcast:', data.error);
+      }
+    } catch (error) {
+      console.error('Error deleting broadcast:', error);
+    }
   };
 
   const handleEditMessage = (messageId: string, newContent: string) => {
@@ -440,6 +554,9 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
           <div className="flex items-center gap-2">
             <div className="relative">
               <Avatar className="h-8 w-8">
+                {currentUser.profileImage && (
+                  <AvatarImage src={currentUser.profileImage} alt={currentUser.name} />
+                )}
                 <AvatarFallback className="text-xs bg-gradient-to-br from-blue-500 to-purple-600 text-white font-bold">
                   {currentUser.name.split(' ').map(n => n[0]).join('').toUpperCase()}
                 </AvatarFallback>
@@ -519,6 +636,9 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
                       {!isConsecutive ? (
                         <div className="relative">
                           <Avatar className="h-10 w-10">
+                            {message.author.avatar && (
+                              <AvatarImage src={message.author.avatar} alt={message.author.name} />
+                            )}
                             <AvatarFallback className="text-sm bg-gradient-to-br from-blue-500 to-purple-600 text-white font-bold">
                               {message.author.name.split(' ').map(n => n[0]).join('').toUpperCase()}
                             </AvatarFallback>
@@ -586,46 +706,42 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
                         </div>
                       </div>
 
-                      {/* Message Actions */}
-                      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 w-6 p-0"
-                          onClick={() => setReplyingTo(message.id)}
-                        >
-                          <Reply className="h-3 w-3" />
-                        </Button>
+                      {/* Message Actions - Only for admins */}
+                      {userRole === 'admin' && (
+                        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0"
+                            onClick={() => setReplyingTo(message.id)}
+                          >
+                            <Reply className="h-3 w-3" />
+                          </Button>
 
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                              <MoreVertical className="h-3 w-3" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {(message.author.name === currentUser.name || userRole === 'admin') && (
-                              <>
-                                <DropdownMenuItem onClick={() => setEditingMessage(message.id)}>
-                                  <Edit className="h-3 w-3 mr-2" />
-                                  Edit Message
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleDeleteMessage(message.id)} className="text-red-600">
-                                  <Trash2 className="h-3 w-3 mr-2" />
-                                  Delete Message
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                              </>
-                            )}
-                            {userRole === 'admin' && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                                <MoreVertical className="h-3 w-3" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => setEditingMessage(message.id)}>
+                                <Edit className="h-3 w-3 mr-2" />
+                                Edit Message
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleDeleteMessage(message.id)} className="text-red-600">
+                                <Trash2 className="h-3 w-3 mr-2" />
+                                Delete Message
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => handlePinMessage(message.id)}>
                                 <PinIcon className="h-3 w-3 mr-2" />
                                 {message.pinned ? 'Unpin Message' : 'Pin Message'}
                               </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -637,55 +753,69 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
 
         {/* Message Input */}
         <div className="p-4 border-t">
-          {replyingTo && (
-            <div className="mb-2 p-2 bg-secondary/50 rounded text-sm text-muted-foreground flex items-center justify-between">
-              <span>Replying to {filteredMessages.find(m => m.id === replyingTo)?.author.name}</span>
-              <Button variant="ghost" size="sm" onClick={() => setReplyingTo(null)} className="h-4 w-4 p-0">
-                <X className="h-3 w-3" />
-              </Button>
-            </div>
-          )}
+          {userRole === 'admin' ? (
+            <>
+              {replyingTo && (
+                <div className="mb-2 p-2 bg-secondary/50 rounded text-sm text-muted-foreground flex items-center justify-between">
+                  <span>Replying to {filteredMessages.find(m => m.id === replyingTo)?.author.name}</span>
+                  <Button variant="ghost" size="sm" onClick={() => setReplyingTo(null)} className="h-4 w-4 p-0">
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
 
-          <div className="flex items-end gap-2">
-            <div className="flex-1 relative">
-              <Input
-                ref={inputRef}
-                placeholder={`Message #${currentChannel?.name}`}
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                className="pr-24"
-              />
-              <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                  <Smile className="h-3 w-3" />
-                </Button>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                  <Paperclip className="h-3 w-3" />
+              <div className="flex items-end gap-2">
+                <div className="flex-1 relative">
+                  <Input
+                    ref={inputRef}
+                    placeholder={`Message #${currentChannel?.name}`}
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                    className="pr-24"
+                  />
+                  <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                      <Smile className="h-3 w-3" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                      <Paperclip className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+                <Button
+                  onClick={handleSendMessage}
+                  disabled={!newMessage.trim()}
+                  size="sm"
+                  className="h-9"
+                >
+                  <Send className="h-3 w-3" />
                 </Button>
               </div>
-            </div>
-            <Button
-              onClick={handleSendMessage}
-              disabled={!newMessage.trim()}
-              size="sm"
-              className="h-9"
-            >
-              <Send className="h-3 w-3" />
-            </Button>
-          </div>
 
-          <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-            <span>Use Shift + Enter for new line</span>
-            {onlineUsers.length > 0 && (
-              <span>{onlineUsers.length} members online</span>
-            )}
-          </div>
+              <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
+                <span>Use Shift + Enter for new line</span>
+                {onlineUsers.length > 0 && (
+                  <span>{onlineUsers.length} members online</span>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-4">
+              <div className="bg-secondary/50 rounded-lg p-4 border border-muted">
+                <MessageSquare className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm font-medium text-muted-foreground">Read-Only Channel</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Only administrators can send messages in this channel.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

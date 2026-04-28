@@ -5,14 +5,14 @@ export type UserRole = 'admin' | 'user' | 'client';
 export type TaskStatus = 'Not Started' | 'In Progress' | 'On Hold' | 'Review';
 export type WorkType = 'Design' | 'Development' | 'QA' | 'Marketing';
 export type TaskPriority = 'Urgent' | 'High' | 'Medium' | 'Low';
-export type ReviewStatus = 'Manager review' | 'Creative review' | 'Vertices Review' | 'Signed off';
+export type ReviewStatus = 'Manager Review' | 'Creative Review' | 'Client Review' | 'Delivered';
 export type TaskCategory = string;
 
 
 export const WORK_TYPES: WorkType[] = ['Design', 'Development', 'QA', 'Marketing'];
 export const TASK_STATUSES: TaskStatus[] = ['Not Started', 'In Progress', 'On Hold', 'Review'];
 export const TASK_PRIORITIES: TaskPriority[] = ['Urgent', 'High', 'Medium', 'Low'];
-export const REVIEW_STATUSES: ReviewStatus[] = ['Manager review', 'Creative review', 'Vertices Review', 'Signed off'];
+export const REVIEW_STATUSES: ReviewStatus[] = ['Manager Review', 'Creative Review', 'Client Review', 'Delivered'];
 
 
 // Represents the cost estimation data, mapping work type to hourly rate.
@@ -49,8 +49,10 @@ export interface ClientStakeholder {
 
 export interface Task {
   id: string;
+  _id?: string;
   name: string;
   assignedTo: string;
+  assignedToName?: string;
   assigneeEmail?: string;
   status: TaskStatus;
   progress: number; // Percentage completion

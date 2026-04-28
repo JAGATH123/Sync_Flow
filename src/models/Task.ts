@@ -1,5 +1,5 @@
 import mongoose, { Document, Schema } from 'mongoose';
-import type { TaskStatus, WorkType, TaskPriority, ReviewStatus, Vertices } from '@/lib/types';
+import type { TaskStatus, WorkType, TaskPriority, ReviewStatus, Vertices } from '@/types';
 
 export interface ITask extends Document {
   _id: string;
@@ -58,7 +58,7 @@ const TaskSchema = new Schema<ITask>({
   },
   status: {
     type: String,
-    enum: ['Not Started', 'In Progress', 'On Hold', 'Delivered'],
+    enum: ['Not Started', 'In Progress', 'On Hold', 'Review', 'Delivered'],
     required: [true, 'Status is required'],
     default: 'Not Started'
   },
@@ -130,7 +130,7 @@ const TaskSchema = new Schema<ITask>({
   },
   priority: {
     type: String,
-    enum: ['High', 'Medium', 'Low'],
+    enum: ['Urgent', 'High', 'Medium', 'Low'],
     required: [true, 'Priority is required'],
     default: 'Medium'
   },
@@ -139,7 +139,7 @@ const TaskSchema = new Schema<ITask>({
   },
   reviewStatus: {
     type: String,
-    enum: ['Manager review', 'Creative review', 'Vertices Review', 'Signed off']
+    enum: ['Manager Review', 'Creative Review', 'Client Review', 'Delivered']
   },
   remarks: {
     type: String,

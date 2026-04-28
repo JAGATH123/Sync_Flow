@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import type { User, Task, TaskStatus, Vertices, ReviewStatus, TaskPriority, TeamMember, AppNotification } from '@/lib/types';
+import type { User, Task, TaskStatus, Vertices, ReviewStatus, TaskPriority, TeamMember, AppNotification } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import {
   Table,
@@ -38,7 +38,7 @@ import DeleteVertexDialog from './delete-vertex-dialog';
 import { format, parseISO, isBefore, isEqual as isDateEqual } from 'date-fns';
 import { Progress } from './ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { COST_RATES, TASK_STATUSES, REVIEW_STATUSES, TASK_PRIORITIES } from '@/lib/types';
+import { COST_RATES, TASK_STATUSES, REVIEW_STATUSES, TASK_PRIORITIES } from '@/lib/constants';
 import { MOCK_VERTICES, TEAM_MEMBERS as INITIAL_TEAM_MEMBERS } from '@/lib/mock-data';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
@@ -46,6 +46,7 @@ import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { isEqual, omit } from 'lodash';
 import { useToast } from '@/hooks/use-toast';
+import { emitTaskUpdated } from '@/lib/realtime';
 
 interface TaskManagementPageProps {
   tasks: Task[];
@@ -273,6 +274,10 @@ export default function TaskManagementPage({
           }
 
           updateTask(taskToSave);
+
+          // Emit real-time event to notify other users/dashboards
+          emitTaskUpdated(data.task || taskToSave);
+
           handleResetChanges(taskId);
           setTaskToSave(null);
           toast({
@@ -400,7 +405,12 @@ export default function TaskManagementPage({
     return { text: 'Late', className: 'bg-red-500 hover:bg-red-600' };
   };
   
-  const canEdit = (task: Task) => isAdmin || task.assignedTo === currentUser.name;
+  const canEdit = (task: Task) => {
+    // Cannot edit if task is delivered
+    if (task.status === 'Delivered') return false;
+    // Otherwise check permissions
+    return isAdmin || task.assignedTo === currentUser.name;
+  };
   
   const getPriorityBadgeClass = (priority: TaskPriority) => {
     switch(priority) {

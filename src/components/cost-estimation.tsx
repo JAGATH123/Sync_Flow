@@ -25,7 +25,7 @@ import { UploadCloud, FileSpreadsheet, TrendingUp, Calculator, DollarSign, Packa
 import { ScrollArea } from './ui/scroll-area';
 import ManualCostTable from './manual-cost-table';
 import { Separator } from './ui/separator';
-import type { User } from '@/lib/types';
+import type { User } from '@/types';
 
 type ExcelData = (string | number)[][];
 

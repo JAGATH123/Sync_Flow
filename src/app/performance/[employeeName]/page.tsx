@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
-import type { Task, TaskStatus } from '@/lib/types';
+import type { Task, TaskStatus } from '@/types';
 import { MOCK_TASKS } from '@/lib/mock-data';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';

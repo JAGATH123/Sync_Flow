@@ -1,19 +1,19 @@
 'use client';
 
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/features/auth/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import UserDashboard from '@/components/user-dashboard';
+import AdminDashboard from '@/components/layout/admin-dashboard';
 
-export default function UserPage() {
+export default function AdminPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    // Redirect non-user users
-    if (!isLoading && (!user || user.role !== 'user')) {
-      if (user?.role === 'admin') {
-        router.push('/admin');
+    // Redirect non-admin users
+    if (!isLoading && (!user || user.role !== 'admin')) {
+      if (user?.role === 'user') {
+        router.push('/user');
       } else if (user?.role === 'client') {
         router.push('/client');
       } else {
@@ -27,14 +27,14 @@ export default function UserPage() {
     return (
       <div className="min-h-screen bg-secondary/40 flex items-center justify-center">
         <div className="text-center space-y-4">
-          <p className="text-muted-foreground">Loading user dashboard...</p>
+          <p className="text-muted-foreground">Loading admin dashboard...</p>
         </div>
       </div>
     );
   }
 
-  // Don't render if no user or not user role
-  if (!user || user.role !== 'user') {
+  // Don't render if no user or not admin
+  if (!user || user.role !== 'admin') {
     return (
       <div className="min-h-screen bg-secondary/40 flex items-center justify-center">
         <div className="text-center space-y-4">
@@ -46,7 +46,7 @@ export default function UserPage() {
 
   return (
     <main className="bg-background">
-      <UserDashboard currentUser={user} />
+      <AdminDashboard currentUser={user} />
     </main>
   );
 }

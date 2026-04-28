@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
-import type { Task, Vertices, User, ClientStakeholder, TeamMember, TaskStatus } from '@/lib/types';
+import type { Task, Vertices, User, ClientStakeholder, TeamMember, TaskStatus } from '@/types';
 import { MOCK_TASKS, MOCK_VERTICES, MOCK_CLIENTS, TEAM_MEMBERS } from '@/lib/mock-data';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

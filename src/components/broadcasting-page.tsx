@@ -1,5 +1,7 @@
-'use client';
+﻿'use client';
 
+
+import { apiFetch } from '@/lib/api/fetch';
 import { useState, useEffect, useRef } from 'react';
 import type { User } from '@/types';
 import { TEAM_MEMBERS } from '@/lib/mock-data';
@@ -164,7 +166,7 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
         return;
       }
 
-      const response = await fetch('/api/broadcasts', {
+      const response = await apiFetch('/api/broadcasts', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -284,7 +286,7 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
         return;
       }
 
-      const response = await fetch('/api/broadcasts', {
+      const response = await apiFetch('/api/broadcasts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -395,7 +397,7 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
   const handleDeleteMessage = async (messageId: string) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/broadcasts?id=${messageId}`, {
+      const response = await apiFetch(`/api/broadcasts?id=${messageId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -822,13 +824,13 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
       {/* Members Sidebar */}
       <div className="w-60 bg-secondary/30 border-l">
         <div className="p-4 border-b">
-          <h3 className="font-semibold text-sm">Members — {onlineUsers.length}</h3>
+          <h3 className="font-semibold text-sm">Members â€” {onlineUsers.length}</h3>
         </div>
         <ScrollArea className="flex-1">
           <div className="p-2">
             <div className="mb-2">
               <h4 className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-1">
-                Online — {onlineUsers.length}
+                Online â€” {onlineUsers.length}
               </h4>
               {TEAM_MEMBERS.filter(member => onlineUsers.includes(member.name)).map((member) => (
                 <div key={member.empId} className="flex items-center gap-2 p-1 rounded hover:bg-secondary/50">
@@ -847,7 +849,7 @@ export default function BroadcastingPage({ currentUser }: BroadcastingPageProps)
 
             <div>
               <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                Offline — {TEAM_MEMBERS.length - onlineUsers.length}
+                Offline â€” {TEAM_MEMBERS.length - onlineUsers.length}
               </h4>
               {TEAM_MEMBERS.filter(member => !onlineUsers.includes(member.name)).map((member) => (
                 <div key={member.empId} className="flex items-center gap-2 p-1 rounded hover:bg-secondary/50 opacity-50">

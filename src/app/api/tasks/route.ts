@@ -1,153 +1,158 @@
+/**
+ * /api/tasks — SyncFlow task CRUD (Prisma / lof_internal.syncflow)
+ * Migrated from Mongoose. Same input/output contract.
+ *
+ * Field renames vs the old Mongoose API:
+ *   assignedTo (ObjectId)  →  assignedToId (string)
+ *   createdBy  (ObjectId)  →  createdById  (string)
+ *   updatedBy  (ObjectId)  →  updatedById  (string)
+ *   archivedBy (ObjectId)  →  archivedById (string)
+ * The frontend still receives `assignedTo` and `createdBy` as nested user
+ * objects (via `include`) so the UI doesn't change.
+ */
 import { NextRequest, NextResponse } from 'next/server';
-import connectToDatabase from '@/lib/database';
-import Task from '@/models/Task';
-import User from '@/models/User';
+import prisma from '@/lib/database/prisma';
 import { getCurrentUser } from '@/lib/auth';
+import { vertexCompanyWhere } from '@/lib/company-filter';
 import { emitTaskUpdated } from '@/lib/realtime';
+
+const userBrief = { select: { id: true, name: true, email: true } };
 
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase();
-
     const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get query parameters
     const { searchParams } = new URL(request.url);
     const vertex = searchParams.get('vertex');
     const status = searchParams.get('status');
     const assignedTo = searchParams.get('assignedTo');
 
-    // Build filter based on user role and query params
-    let filter: any = { isArchived: false };
+    // ── Company filter (mirrors Horilla's CompanyMiddleware) ──────────────────
+    const companySlug = searchParams.get('company');
+    const companyFilter = vertexCompanyWhere(companySlug);
+    const where: any = { isArchived: false, ...companyFilter };
 
-    // Role-based filtering
     if (currentUser.role === 'client') {
-      // Clients can see tasks from their vertex, or tasks assigned to them by email or name
-      const user = await User.findById(currentUser.userId);
-      filter.$or = [
-        { vertex: user?.vertex },
-        { clientEmail: user?.email },
-        { client: { $regex: new RegExp(user?.name || '', 'i') } }
-      ];
-    } else if (currentUser.role === 'user') {
-      // Users can see all tasks, but we might want to limit this in the future
+      const me = await prisma.user.findUnique({
+        where: { id: currentUser.userId },
+        select: { vertex: true, email: true, name: true },
+      });
+      const orFilters: any[] = [];
+      if (me?.vertex) orFilters.push({ vertex: me.vertex });
+      if (me?.email) orFilters.push({ clientEmail: me.email });
+      if (me?.name)
+        orFilters.push({ client: { contains: me.name, mode: 'insensitive' } });
+      if (orFilters.length) where.OR = orFilters;
     }
 
-    // Apply additional filters
-    if (vertex && vertex !== 'all') {
-      filter.vertex = vertex;
-    }
-    if (status && status !== 'all') {
-      filter.status = status;
-    }
-    if (assignedTo) {
-      filter.assignedToName = assignedTo;
-    }
+    if (vertex && vertex !== 'all') where.vertex = vertex;
+    if (status && status !== 'all') where.status = status;
+    if (assignedTo) where.assignedToName = assignedTo;
 
-    const tasks = await Task.find(filter)
-      .populate('assignedTo', 'name email')
-      .populate('createdBy', 'name email')
-      .sort({ createdAt: -1 });
+    const tasks = await prisma.task.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        assignedTo: userBrief,
+        createdBy: userBrief,
+      },
+    });
 
     return NextResponse.json({ success: true, tasks });
-
   } catch (error) {
     console.error('Tasks GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase();
-
     const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-
-    // Only admins and users can create tasks
     if (currentUser.role === 'client') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const taskData = await request.json();
+    const t = await request.json();
 
-    // Find the assigned user
-    const assignedUser = await User.findOne({
-      $or: [
-        { name: taskData.assignedTo },
-        { email: taskData.assigneeEmail }
-      ]
+    // Find assignee by name OR email
+    const assignee = await prisma.user.findFirst({
+      where: {
+        OR: [
+          ...(t.assignedTo ? [{ name: t.assignedTo }] : []),
+          ...(t.assigneeEmail ? [{ email: t.assigneeEmail }] : []),
+        ],
+      },
     });
-
-    if (!assignedUser) {
-      return NextResponse.json({ error: 'Assigned user not found' }, { status: 400 });
+    if (!assignee) {
+      return NextResponse.json(
+        { error: 'Assigned user not found' },
+        { status: 400 }
+      );
     }
 
-    // Create the task
-    const newTask = await Task.create({
-      name: taskData.name,
-      assignedTo: assignedUser._id,
-      assignedToName: assignedUser.name,
-      assigneeEmail: assignedUser.email,
-      status: 'Not Started',
-      progress: 0,
-      startDate: new Date(taskData.startDate),
-      endDate: new Date(taskData.endDate),
-      createdDate: new Date(),
-      client: taskData.client,
-      clientEmail: taskData.clientEmail,
-      vertex: taskData.vertex,
-      typeOfWork: taskData.typeOfWork,
-      category: taskData.category,
-      workingHours: taskData.workingHours,
-      estimatedCost: taskData.estimatedCost,
-      priority: taskData.priority,
-      remarks: taskData.remarks,
-      createdBy: currentUser.userId,
-      isArchived: false
+    const created = await prisma.task.create({
+      data: {
+        name: t.name,
+        assignedToId: assignee.id,
+        assignedToName: assignee.name,
+        assigneeEmail: assignee.email,
+        status: 'Not Started',
+        progress: 0,
+        startDate: new Date(t.startDate),
+        endDate: new Date(t.endDate),
+        client: t.client,
+        clientEmail: t.clientEmail ?? null,
+        vertex: t.vertex,
+        typeOfWork: t.typeOfWork,
+        category: t.category,
+        workingHours: t.workingHours,
+        priority: t.priority ?? 'Medium',
+        remarks: t.remarks ?? null,
+        createdById: currentUser.userId,
+      },
+      include: {
+        assignedTo: userBrief,
+        createdBy: userBrief,
+      },
     });
 
-    // Populate the created task
-    const populatedTask = await Task.findById(newTask._id)
-      .populate('assignedTo', 'name email')
-      .populate('createdBy', 'name email');
-
-    // Format the response to ensure proper field mapping
-    const responseTask = {
-      ...populatedTask.toJSON(),
-      _id: populatedTask._id,
-      assignedToName: populatedTask.assignedToName,
-      assignedTo: populatedTask.assignedTo,
-      startDate: populatedTask.startDate.toISOString(),
-      endDate: populatedTask.endDate.toISOString(),
-      createdDate: populatedTask.createdDate.toISOString(),
-      completionDate: populatedTask.completionDate ? populatedTask.completionDate.toISOString() : undefined,
-    };
-
-    // Note: Real-time event emission happens on client side in create-task-dialog.tsx
-    // This ensures the event is properly broadcast using BroadcastChannel
-
-    return NextResponse.json({
-      success: true,
-      task: responseTask,
-      message: 'Task created successfully'
-    }, { status: 201 });
-
+    return NextResponse.json(
+      {
+        success: true,
+        message: 'Task created successfully',
+        task: {
+          ...created,
+          _id: created.id, // legacy field for any code still expecting Mongoose shape
+          startDate: created.startDate.toISOString(),
+          endDate: created.endDate.toISOString(),
+          createdDate: created.createdDate.toISOString(),
+          completionDate: created.completionDate
+            ? created.completionDate.toISOString()
+            : undefined,
+        },
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error('Tasks POST error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
 
 export async function PUT(request: NextRequest) {
   try {
-    await connectToDatabase();
-
     const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -163,150 +168,128 @@ export async function PUT(request: NextRequest) {
       startDate,
       endDate,
       priority,
-      reviewStatus
+      reviewStatus,
     } = await request.json();
 
     if (!taskId) {
-      return NextResponse.json({ error: 'Task ID is required' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Task ID is required' },
+        { status: 400 }
+      );
     }
 
-    // Find the task
-    const task = await Task.findById(taskId);
+    const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    // Check permissions
-    if (currentUser.role === 'user') {
-      // Users can only update their own tasks
-      if (task.assignedTo.toString() !== currentUser.userId) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
-    } else if (currentUser.role === 'client') {
+    // Permissions
+    if (currentUser.role === 'user' && task.assignedToId !== currentUser.userId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    if (currentUser.role === 'client') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Update task fields
-    const updateData: any = { updatedBy: currentUser.userId };
+    const data: any = { updatedById: currentUser.userId };
 
     if (progress !== undefined) {
-      updateData.progress = Math.max(0, Math.min(100, progress));
-
-      // Auto-update status based on progress
-      if (updateData.progress === 100) {
-        updateData.status = 'Delivered';
-        updateData.completionDate = new Date();
-      } else if (updateData.progress > 0) {
-        updateData.status = 'In Progress';
+      const p = Math.max(0, Math.min(100, progress));
+      data.progress = p;
+      if (p === 100) {
+        data.status = 'Delivered';
+        data.completionDate = new Date();
+      } else if (p > 0) {
+        data.status = 'In Progress';
       }
     }
-
-    if (actualWorkingHours !== undefined) {
-      updateData.actualWorkingHours = actualWorkingHours;
-    }
-
+    if (actualWorkingHours !== undefined) data.actualWorkingHours = actualWorkingHours;
     if (status) {
-      updateData.status = status;
-      // Set completion date when status is changed to Delivered
+      data.status = status;
       if (status === 'Delivered' && !task.completionDate) {
-        updateData.completionDate = new Date();
+        data.completionDate = new Date();
       }
     }
-
-    if (remarks !== undefined) {
-      updateData.remarks = remarks;
-    }
+    if (remarks !== undefined) data.remarks = remarks;
 
     if (assignedTo && currentUser.role === 'admin') {
-      // Find the user by name to get their ID and email
-      const assignedUser = await User.findOne({ name: assignedTo });
-      if (assignedUser) {
-        updateData.assignedTo = assignedUser._id;
-        updateData.assignedToName = assignedUser.name;
-        updateData.assigneeEmail = assignedUser.email;
+      const assignee = await prisma.user.findFirst({ where: { name: assignedTo } });
+      if (assignee) {
+        data.assignedToId = assignee.id;
+        data.assignedToName = assignee.name;
+        data.assigneeEmail = assignee.email;
       }
     }
+    if (startDate && currentUser.role === 'admin') data.startDate = new Date(startDate);
+    if (endDate && currentUser.role === 'admin') data.endDate = new Date(endDate);
+    if (priority && currentUser.role === 'admin') data.priority = priority;
+    if (reviewStatus && currentUser.role === 'admin') data.reviewStatus = reviewStatus;
 
-    if (startDate && currentUser.role === 'admin') {
-      updateData.startDate = new Date(startDate);
+    const updated = await prisma.task.update({
+      where: { id: taskId },
+      data,
+      include: { assignedTo: userBrief, createdBy: userBrief },
+    });
+
+    try {
+      emitTaskUpdated(updated);
+    } catch {
+      /* realtime is best-effort */
     }
-
-    if (endDate && currentUser.role === 'admin') {
-      updateData.endDate = new Date(endDate);
-    }
-
-    if (priority && currentUser.role === 'admin') {
-      updateData.priority = priority;
-    }
-
-    if (reviewStatus && currentUser.role === 'admin') {
-      updateData.reviewStatus = reviewStatus;
-    }
-
-    const updatedTask = await Task.findByIdAndUpdate(
-      taskId,
-      updateData,
-      { new: true, runValidators: true }
-    )
-    .populate('assignedTo', 'name email')
-    .populate('createdBy', 'name email');
-
-    // Emit real-time event
-    emitTaskUpdated(updatedTask);
 
     return NextResponse.json({
       success: true,
-      task: updatedTask,
-      message: 'Task updated successfully'
+      message: 'Task updated successfully',
+      task: updated,
     });
-
   } catch (error) {
     console.error('Tasks PUT error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
-    await connectToDatabase();
-
     const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-
-    // Only admins can delete tasks
     if (currentUser.role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const { searchParams } = new URL(request.url);
     const taskIds = searchParams.get('ids');
-
     if (!taskIds) {
-      return NextResponse.json({ error: 'Task IDs are required' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Task IDs are required' },
+        { status: 400 }
+      );
     }
+    const ids = taskIds.split(',');
 
-    const idsArray = taskIds.split(',');
-
-    // Instead of hard delete, mark as archived for data integrity
-    const result = await Task.updateMany(
-      { _id: { $in: idsArray } },
-      {
+    const result = await prisma.task.updateMany({
+      where: { id: { in: ids } },
+      data: {
         isArchived: true,
         archivedAt: new Date(),
-        archivedBy: currentUser.userId
-      }
-    );
+        archivedById: currentUser.userId,
+      },
+    });
 
     return NextResponse.json({
       success: true,
-      message: `${result.modifiedCount} tasks deleted successfully`,
-      deletedCount: result.modifiedCount
+      message: `${result.count} tasks deleted successfully`,
+      deletedCount: result.count,
     });
-
   } catch (error) {
     console.error('Tasks DELETE error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }

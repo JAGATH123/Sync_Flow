@@ -1,5 +1,7 @@
-'use client';
+﻿'use client';
 
+
+import { apiFetch } from '@/lib/api/fetch';
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -70,7 +72,7 @@ export default function UserSettingsDialog({ open, onOpenChange }: UserSettingsD
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/user/profile', {
+      const response = await apiFetch('/api/user/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -123,7 +125,7 @@ export default function UserSettingsDialog({ open, onOpenChange }: UserSettingsD
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/user/profile', {
+      const response = await apiFetch('/api/user/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -208,7 +210,7 @@ export default function UserSettingsDialog({ open, onOpenChange }: UserSettingsD
       formData.append('profileImage', imageFile);
 
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/user/profile', {
+      const response = await apiFetch('/api/user/profile', {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,

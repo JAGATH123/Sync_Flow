@@ -1,0 +1,198 @@
+// SyncFlow — Prisma schema for the LOF Internal database (`syncflow` schema)
+//
+// Migrated from Mongoose. Same domain model: Users, Tasks, Projects,
+// Broadcasts, Notifications. Multi-schema feature so we can share the
+// `lof_internal` Postgres database with TimeWise (`timesheet`),
+// Horilla (`hr`), Platform (`platform`), and Feedback (`feedback`).
+//
+// Vertex / status / role values are kept as plain strings so the existing
+// string-based API code keeps working without translation.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["syncflow"]
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  password      String    // bcrypt hash (random for SSO-only users)
+  role          String    @default("user")  // 'admin' | 'user' | 'client' | 'system'
+  empId         String?   @unique
+  designation   String?
+  vertex        String?   // 'CMIS'|'LOF'|'TRI'|'TRG'|'VB World'|'CMG'|'Jahangir'|'LOF Curriculum'
+  profileImage  String?
+  isActive      Boolean   @default(true)
+  lastLogin     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  tasksAssigned   Task[]         @relation("TasksAssigned")
+  tasksCreated    Task[]         @relation("TasksCreated")
+  tasksUpdated    Task[]         @relation("TasksUpdated")
+  tasksArchived   Task[]         @relation("TasksArchived")
+  tasksAsClient   Task[]         @relation("TasksAsClient")
+  projectsCreated Project[]      @relation("ProjectsCreated")
+  projectsUpdated Project[]      @relation("ProjectsUpdated")
+  projectsAsClient Project[]     @relation("ProjectsAsClient")
+  notifications   Notification[] @relation("NotificationsForUser")
+  notificationsCreated Notification[] @relation("NotificationsCreatedByUser")
+
+  /// Company slug (e.g. "trg", "lof", "cmis") — same concept as Horilla's selected_company
+  /// All tasks, projects, CRM data filtered by this company context
+  companyId     String?
+
+  @@index([role])
+  @@index([vertex])
+  @@index([companyId])
+  @@schema("syncflow")
+}
+
+// ─── Task ─────────────────────────────────────────────────────────────────────
+model Task {
+  id                  String    @id @default(cuid())
+  name                String
+  assignedToId        String
+  assignedToName      String
+  assigneeEmail       String
+  status              String    @default("Not Started")
+  progress            Int       @default(0)
+  startDate           DateTime
+  endDate             DateTime
+  createdDate         DateTime  @default(now())
+  client              String
+  clientEmail         String?
+  clientId            String?
+  vertex              String
+  typeOfWork          String    // 'Design' | 'Development' | 'QA' | 'Marketing'
+  category            String
+  workingHours        Float
+  actualWorkingHours  Float?
+  priority            String    @default("Medium")  // 'Urgent' | 'High' | 'Medium' | 'Low'
+  completionDate      DateTime?
+  reviewStatus        String?
+  remarks             String?
+  createdById         String
+  updatedById         String?
+  isArchived          Boolean   @default(false)
+  archivedAt          DateTime?
+  archivedById        String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  assignedTo          User      @relation("TasksAssigned",  fields: [assignedToId],  references: [id], onDelete: Restrict)
+  createdBy           User      @relation("TasksCreated",   fields: [createdById],   references: [id], onDelete: Restrict)
+  updatedBy           User?     @relation("TasksUpdated",   fields: [updatedById],   references: [id], onDelete: SetNull)
+  archivedBy          User?     @relation("TasksArchived",  fields: [archivedById],  references: [id], onDelete: SetNull)
+  clientUser          User?     @relation("TasksAsClient",  fields: [clientId],      references: [id], onDelete: SetNull)
+  notifications       Notification[]
+
+  @@index([assignedToId])
+  @@index([vertex])
+  @@index([status])
+  @@index([priority])
+  @@index([startDate, endDate])
+  @@index([createdById])
+  @@index([clientId])
+  @@index([isArchived])
+  @@schema("syncflow")
+}
+
+// ─── Project ──────────────────────────────────────────────────────────────────
+model Project {
+  id              String    @id @default(cuid())
+  name            String
+  description     String?
+  client          String?
+  clientId        String?
+  vertex          String?
+  startDate       DateTime?
+  endDate         DateTime?
+  status          String?   @default("Not Started")
+  typeOfWork      String?
+  estimatedHours  Float?
+  actualHours     Float?
+  budget          Float?
+  createdById     String
+  updatedById     String?
+  isArchived      Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  createdBy       User      @relation("ProjectsCreated",   fields: [createdById], references: [id], onDelete: Restrict)
+  updatedBy       User?     @relation("ProjectsUpdated",   fields: [updatedById], references: [id], onDelete: SetNull)
+  clientUser      User?     @relation("ProjectsAsClient",  fields: [clientId],    references: [id], onDelete: SetNull)
+  notifications   Notification[]
+
+  @@index([name])
+  @@index([clientId])
+  @@index([vertex])
+  @@index([status])
+  @@index([createdById])
+  @@index([isArchived])
+  @@schema("syncflow")
+}
+
+// ─── Broadcast ────────────────────────────────────────────────────────────────
+model Broadcast {
+  id            String   @id @default(cuid())
+  title         String
+  message       String
+  category      String   @default("general")
+  priority      String   @default("Medium")  // 'Low' | 'Medium' | 'High' | 'Critical'
+  createdById   String   // string (not FK) — matches old Mongoose schema
+  createdByName String
+  createdDate   DateTime @default(now())
+  targetUsers   String[] @default([])
+  readBy        String[] @default([])
+  vertex        String?
+  isArchived    Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([category])
+  @@index([vertex])
+  @@index([createdById])
+  @@index([createdDate])
+  @@index([isArchived])
+  @@schema("syncflow")
+}
+
+// ─── Notification ─────────────────────────────────────────────────────────────
+model Notification {
+  id          String    @id @default(cuid())
+  title       String
+  message     String
+  type        String    @default("info")  // 'info' | 'success' | 'warning' | 'error'
+  userId      String
+  taskId      String?
+  projectId   String?
+  isRead      Boolean   @default(false)
+  readAt      DateTime?
+  createdById String?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user        User      @relation("NotificationsForUser",     fields: [userId],      references: [id], onDelete: Cascade)
+  createdBy   User?     @relation("NotificationsCreatedByUser", fields: [createdById], references: [id], onDelete: SetNull)
+  task        Task?     @relation(fields: [taskId],    references: [id], onDelete: Cascade)
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([expiresAt])
+  @@index([createdAt])
+  @@index([taskId])
+  @@index([projectId])
+  @@schema("syncflow")
+}

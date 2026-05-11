@@ -1,5 +1,7 @@
-'use client';
+﻿'use client';
 
+
+import { apiFetch } from '@/lib/api/fetch';
 import { useState, useEffect, useCallback } from 'react';
 import type { User, Task } from '@/types';
 import { MOCK_TASKS } from '@/lib/mock-data';
@@ -80,7 +82,7 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
         return;
       }
 
-      const response = await fetch('/api/tasks', {
+      const response = await apiFetch('/api/tasks', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -226,7 +228,7 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
         status = 'In Progress';
       }
 
-      const response = await fetch('/api/tasks', {
+      const response = await apiFetch('/api/tasks', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -530,7 +532,7 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
                         )}
                       </div>
                       <CardDescription className="text-sm">
-                        {task.category} • {typeof task.client === 'string' ? task.client : (task.client as any)?.name || 'Unknown Client'}
+                        {task.category} â€¢ {typeof task.client === 'string' ? task.client : (task.client as any)?.name || 'Unknown Client'}
                       </CardDescription>
                       <div className="flex flex-wrap gap-2">
                         <Badge className={cn('text-xs flex items-center gap-1', getPriorityBadgeClass(task.priority))}>
@@ -923,7 +925,7 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{task.name}</p>
-                      <p className="text-sm text-muted-foreground truncate">{typeof task.client === 'string' ? task.client : (task.client as any)?.name || 'Unknown Client'} • {task.category}</p>
+                      <p className="text-sm text-muted-foreground truncate">{typeof task.client === 'string' ? task.client : (task.client as any)?.name || 'Unknown Client'} â€¢ {task.category}</p>
                     </div>
                     <div className="flex-shrink-0 text-right">
                       <Badge className={cn('text-xs', getStatusBadgeClass(task.status))}>

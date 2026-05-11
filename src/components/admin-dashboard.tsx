@@ -1,5 +1,7 @@
-'use client';
+﻿'use client';
 
+
+import { apiFetch } from '@/lib/api/fetch';
 import { useState, useEffect } from 'react';
 import type { User, Task, TeamMember } from '@/types';
 import { ALL_USERS, MOCK_VERTICES, TEAM_MEMBERS } from '@/lib/mock-data';
@@ -55,7 +57,7 @@ export default function AdminDashboard({ currentUser: authUser }: AdminDashboard
         return;
       }
 
-      const response = await fetch('/api/tasks', {
+      const response = await apiFetch('/api/tasks', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -172,7 +174,7 @@ export default function AdminDashboard({ currentUser: authUser }: AdminDashboard
         return;
       }
 
-      const response = await fetch('/api/tasks', {
+      const response = await apiFetch('/api/tasks', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

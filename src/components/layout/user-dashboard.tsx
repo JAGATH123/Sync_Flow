@@ -1,5 +1,7 @@
-'use client';
+﻿'use client';
 
+
+import { apiFetch } from '@/lib/api/fetch';
 import { useState, useEffect, useCallback } from 'react';
 import type { User, Task } from '@/types';
 import { MOCK_TASKS } from '@/lib/mock-data';
@@ -25,11 +27,9 @@ import {
   Timer,
   Target,
 } from 'lucide-react';
-import Clock from '@/components/layout/clock';
 import { cn } from '@/lib/utils';
-import UserMenu from '@/components/layout/user-menu';
-import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarTrigger, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarFooter, SidebarInset } from '@/components/ui/sidebar';
-import Notifications from '@/components/layout/notifications';
+import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarFooter, SidebarInset } from '@/components/ui/sidebar';
+import TopNavbar from '@/components/layout/top-navbar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -49,6 +49,13 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Respon
 import { useRealtime, emitTaskUpdated } from '@/lib/realtime';
 
 type UserView = 'my-tasks' | 'my-progress' | 'team-chat';
+
+// Map active view â†’ display label for the navbar breadcrumb
+const USER_VIEW_LABELS: Record<UserView, string> = {
+  'my-tasks':    'My Tasks',
+  'my-progress': 'My Progress',
+  'team-chat':   'Team Chat',
+};
 
 interface UserDashboardProps {
   currentUser: any; // AuthUser from context
@@ -80,7 +87,7 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
         return;
       }
 
-      const response = await fetch('/api/tasks', {
+      const response = await apiFetch('/api/tasks', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -226,7 +233,7 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
         status = 'In Progress';
       }
 
-      const response = await fetch('/api/tasks', {
+      const response = await apiFetch('/api/tasks', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -530,7 +537,7 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
                         )}
                       </div>
                       <CardDescription className="text-sm">
-                        {task.category} • {typeof task.client === 'string' ? task.client : (task.client as any)?.name || 'Unknown Client'}
+                        {task.category} â€¢ {typeof task.client === 'string' ? task.client : (task.client as any)?.name || 'Unknown Client'}
                       </CardDescription>
                       <div className="flex flex-wrap gap-2">
                         <Badge className={cn('text-xs flex items-center gap-1', getPriorityBadgeClass(task.priority))}>
@@ -923,7 +930,7 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{task.name}</p>
-                      <p className="text-sm text-muted-foreground truncate">{typeof task.client === 'string' ? task.client : (task.client as any)?.name || 'Unknown Client'} • {task.category}</p>
+                      <p className="text-sm text-muted-foreground truncate">{typeof task.client === 'string' ? task.client : (task.client as any)?.name || 'Unknown Client'} â€¢ {task.category}</p>
                     </div>
                     <div className="flex-shrink-0 text-right">
                       <Badge className={cn('text-xs', getStatusBadgeClass(task.status))}>
@@ -1050,11 +1057,11 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
     <SidebarProvider>
       <Sidebar side="left" collapsible="icon">
         <SidebarHeader>
-          <div className="flex justify-between items-center p-4">
-            <div className="w-32 group-data-[collapsible=icon]:hidden">
+          {/* Sidebar header â€” brand only. Hamburger lives in TopNavbar. */}
+          <div className="flex items-center p-4 group-data-[collapsible=icon]:justify-center">
+            <div className="group-data-[collapsible=icon]:hidden">
               <h2 className="text-2xl font-bold tracking-wider text-sidebar-foreground">SyncFlow</h2>
             </div>
-            <SidebarTrigger />
           </div>
           <div className="px-4 pb-4 group-data-[collapsible=icon]:hidden">
             <div className="h-px bg-border"></div>
@@ -1096,14 +1103,17 @@ export default function UserDashboard({ currentUser: authUser }: UserDashboardPr
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
+        {/* Horilla-style top navbar â€” single source of nav chrome */}
+        <TopNavbar
+          viewLabel={USER_VIEW_LABELS[activeView] ?? activeView}
+          onBack={handleBack}
+          canGoBack={viewHistory.length > 1}
+          onHome={() => handleSetView('my-tasks')}
+          isOnOverview={activeView === 'my-tasks'}
+          userRole="user"
+        />
+
         <div className="w-full p-4 sm:p-6">
-          <header className="flex justify-between items-center mb-6">
-            <Clock />
-            <div className="flex items-center gap-4">
-              <Notifications />
-              <UserMenu />
-            </div>
-          </header>
           <div>
             {renderContent()}
           </div>

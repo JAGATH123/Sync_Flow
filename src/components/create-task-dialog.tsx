@@ -1,6 +1,8 @@
-
+﻿
 'use client';
 
+
+import { apiFetch } from '@/lib/api/fetch';
 import { useState, useEffect } from 'react';
 import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -81,7 +83,7 @@ export default function CreateTaskDialog({ addTask, currentUser }: CreateTaskDia
     // Load team members from API
     const loadTeamMembers = async () => {
       try {
-        const response = await fetch('/api/users');
+        const response = await apiFetch('/api/users');
         const data = await response.json();
 
         if (data.success && data.users) {
@@ -201,7 +203,7 @@ export default function CreateTaskDialog({ addTask, currentUser }: CreateTaskDia
 
       console.log('Sending POST request to /api/tasks...');
 
-      const response = await fetch('/api/tasks', {
+      const response = await apiFetch('/api/tasks', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -516,7 +518,7 @@ export default function CreateTaskDialog({ addTask, currentUser }: CreateTaskDia
                     name="estimatedCost"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Estimated Cost (₹)</FormLabel>
+                        <FormLabel>Estimated Cost (â‚¹)</FormLabel>
                         <FormControl>
                           <Input
                             type="number"
@@ -528,7 +530,7 @@ export default function CreateTaskDialog({ addTask, currentUser }: CreateTaskDia
                         </FormControl>
                         <FormMessage />
                         <p className="text-xs text-muted-foreground mt-1">
-                          Rate: ₹{COST_RATES[typeOfWork as keyof typeof COST_RATES] || 85}/hour
+                          Rate: â‚¹{COST_RATES[typeOfWork as keyof typeof COST_RATES] || 85}/hour
                           {priority === 'Urgent' && <span className="text-orange-600 font-medium"> (+150% markup for Urgent)</span>}
                         </p>
                       </FormItem>

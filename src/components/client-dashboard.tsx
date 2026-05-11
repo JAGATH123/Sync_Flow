@@ -1,5 +1,7 @@
-'use client';
+﻿'use client';
 
+
+import { apiFetch } from '@/lib/api/fetch';
 import { useState, useEffect, useCallback } from 'react';
 import type { User, Task } from '@/types';
 import { MOCK_TASKS } from '@/lib/mock-data';
@@ -53,7 +55,7 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
         return;
       }
 
-      const response = await fetch('/api/tasks', {
+      const response = await apiFetch('/api/tasks', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -267,7 +269,7 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
                       </div>
                       <div className="text-right">
                         <p className="text-sm text-muted-foreground">Cost</p>
-                        <p className="text-lg font-bold">₹{calculateProjectCost(task).toLocaleString('en-IN')}</p>
+                        <p className="text-lg font-bold">â‚¹{calculateProjectCost(task).toLocaleString('en-IN')}</p>
                       </div>
                     </div>
                   </CardHeader>
@@ -321,7 +323,7 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
                       <div className="pt-2">
                         <div className="bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 rounded-lg p-3">
                           <p className="text-sm font-medium text-orange-900 dark:text-orange-200">
-                            ⚠️ This task has been completed and is awaiting your review. Please check the deliverables and provide your feedback.
+                            âš ï¸ This task has been completed and is awaiting your review. Please check the deliverables and provide your feedback.
                           </p>
                         </div>
                       </div>
@@ -376,7 +378,7 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-muted-foreground">Cost</p>
-                      <p className="text-lg font-bold">₹{calculateProjectCost(task).toLocaleString('en-IN')}</p>
+                      <p className="text-lg font-bold">â‚¹{calculateProjectCost(task).toLocaleString('en-IN')}</p>
                     </div>
                   </div>
                 </CardHeader>
@@ -471,7 +473,7 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
                 <div className="text-xs text-muted-foreground">Avg Progress</div>
               </div>
               <div className="text-center p-3 bg-white/80 dark:bg-gray-900/80 rounded-lg border border-orange-200 dark:border-orange-800">
-                <div className="text-2xl font-bold text-red-600">₹{totalCost.toLocaleString('en-IN')}</div>
+                <div className="text-2xl font-bold text-red-600">â‚¹{totalCost.toLocaleString('en-IN')}</div>
                 <div className="text-xs text-muted-foreground">Total Cost</div>
               </div>
             </div>
@@ -545,7 +547,7 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
                 <FileText className="h-5 w-5 text-green-500" />
                 <div>
                   <p className="text-sm text-muted-foreground">Total Cost</p>
-                  <p className="text-2xl font-bold">₹{totalCost.toLocaleString('en-IN')}</p>
+                  <p className="text-2xl font-bold">â‚¹{totalCost.toLocaleString('en-IN')}</p>
                 </div>
               </div>
             </CardContent>
@@ -626,7 +628,7 @@ export default function ClientDashboard({ currentUser: authUser }: ClientDashboa
                   </TableCell>
                   <TableCell>{task.assignedTo}</TableCell>
                   <TableCell className="text-right font-medium">
-                    ₹{calculateProjectCost(task).toLocaleString('en-IN')}
+                    â‚¹{calculateProjectCost(task).toLocaleString('en-IN')}
                   </TableCell>
                 </TableRow>
               ))}

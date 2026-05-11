@@ -1,162 +1,117 @@
+/**
+ * /api/notifications — SyncFlow notifications (Prisma / lof_internal.syncflow)
+ *
+ * The old Mongoose code stored notifications inside the User collection with
+ * `notification*` prefixed fields (a hack to avoid creating a second model).
+ * This Prisma version uses a proper, normalized `Notification` table.
+ *
+ * Frontend payload shape is preserved:
+ *   { _id, title, message, type, priority?, userId, relatedId?,
+ *     createdBy?, createdDate, readAt?, isRead, actionUrl?, metadata? }
+ */
 import { NextRequest, NextResponse } from 'next/server';
-import connectToDatabase from '@/lib/database';
-import User from '@/models/User';
+import prisma from '@/lib/database/prisma';
 import { getCurrentUser } from '@/lib/auth';
 
-interface Notification {
-  _id?: string;
-  title: string;
-  message: string;
-  type: 'task' | 'project' | 'broadcast' | 'system' | 'reminder';
-  priority: 'Low' | 'Medium' | 'High' | 'Critical';
-  userId: string;
-  relatedId?: string; // ID of related task, project, etc.
-  createdBy?: string;
-  createdDate: Date;
-  readAt?: Date;
-  isRead: boolean;
-  actionUrl?: string;
-  metadata?: any;
+// Reshape Prisma row → frontend "notification" shape
+function shape(n: any) {
+  return {
+    _id: n.id,
+    title: n.title,
+    message: n.message,
+    type: n.type,
+    userId: n.userId,
+    relatedId: n.taskId ?? n.projectId ?? undefined,
+    createdBy: n.createdById ?? undefined,
+    createdDate: n.createdAt,
+    readAt: n.readAt ?? undefined,
+    isRead: n.isRead,
+  };
 }
 
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase();
-
     const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get query parameters
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type');
-    const isRead = searchParams.get('isRead');
-    const limit = parseInt(searchParams.get('limit') || '50');
+    const isReadParam = searchParams.get('isRead');
+    const limit = parseInt(searchParams.get('limit') || '50', 10);
 
-    // Build filter for user's notifications
-    let filter: any = { notificationUserId: currentUser.userId };
-
-    if (type && type !== 'all') {
-      filter.notificationType = type;
+    const where: any = { userId: currentUser.userId };
+    if (type && type !== 'all') where.type = type;
+    if (isReadParam !== null && isReadParam !== undefined && isReadParam !== '') {
+      where.isRead = isReadParam === 'true';
     }
 
-    if (isRead !== null) {
-      filter.notificationIsRead = isRead === 'true';
-    }
-
-    // Get notifications from database (using User collection with notification fields)
-    const notifications = await User.aggregate([
-      {
-        $match: {
-          notificationTitle: { $exists: true },
-          notificationUserId: currentUser.userId,
-          ...filter
-        }
-      },
-      {
-        $project: {
-          _id: 1,
-          title: '$notificationTitle',
-          message: '$notificationMessage',
-          type: '$notificationType',
-          priority: '$notificationPriority',
-          userId: '$notificationUserId',
-          relatedId: '$notificationRelatedId',
-          createdBy: '$notificationCreatedBy',
-          createdDate: '$notificationCreatedDate',
-          readAt: '$notificationReadAt',
-          isRead: { $ifNull: ['$notificationIsRead', false] },
-          actionUrl: '$notificationActionUrl',
-          metadata: '$notificationMetadata'
-        }
-      },
-      { $sort: { createdDate: -1 } },
-      { $limit: limit }
+    const [rows, unreadCount] = await Promise.all([
+      prisma.notification.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      }),
+      prisma.notification.count({
+        where: { userId: currentUser.userId, isRead: false },
+      }),
     ]);
-
-    // Get unread count
-    const unreadCount = await User.countDocuments({
-      notificationUserId: currentUser.userId,
-      notificationIsRead: { $ne: true }
-    });
 
     return NextResponse.json({
       success: true,
-      notifications,
-      unreadCount
+      notifications: rows.map(shape),
+      unreadCount,
     });
-
   } catch (error) {
     console.error('Notifications GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase();
-
     const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const notificationData = await request.json();
-
-    // Create notification document
-    const notificationId = new Date().getTime().toString();
-    const newNotification = {
-      _id: notificationId,
-      title: notificationData.title,
-      message: notificationData.message,
-      type: notificationData.type || 'system',
-      priority: notificationData.priority || 'Medium',
-      userId: notificationData.userId || currentUser.userId,
-      relatedId: notificationData.relatedId,
-      createdBy: currentUser.userId,
-      createdDate: new Date(),
-      isRead: false,
-      actionUrl: notificationData.actionUrl,
-      metadata: notificationData.metadata
-    };
-
-    // Store notification using User collection with notification fields
-    await User.create({
-      email: `notification_${notificationId}@system.local`,
-      name: `Notification_${notificationId}`,
-      password: 'system123',
-      role: 'system',
-      notificationTitle: newNotification.title,
-      notificationMessage: newNotification.message,
-      notificationType: newNotification.type,
-      notificationPriority: newNotification.priority,
-      notificationUserId: newNotification.userId,
-      notificationRelatedId: newNotification.relatedId,
-      notificationCreatedBy: newNotification.createdBy,
-      notificationCreatedDate: newNotification.createdDate,
-      notificationIsRead: false,
-      notificationActionUrl: newNotification.actionUrl,
-      notificationMetadata: newNotification.metadata,
-      isSystemDocument: true
+    const d = await request.json();
+    const created = await prisma.notification.create({
+      data: {
+        title: d.title,
+        message: d.message,
+        type: d.type ?? 'info',
+        userId: d.userId ?? currentUser.userId,
+        taskId: d.taskId ?? null,
+        projectId: d.projectId ?? null,
+        createdById: currentUser.userId,
+        isRead: false,
+      },
     });
 
-    return NextResponse.json({
-      success: true,
-      notification: newNotification,
-      message: 'Notification created successfully'
-    }, { status: 201 });
-
+    return NextResponse.json(
+      {
+        success: true,
+        message: 'Notification created successfully',
+        notification: shape(created),
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error('Notifications POST error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
 
 export async function PUT(request: NextRequest) {
   try {
-    await connectToDatabase();
-
     const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -164,90 +119,62 @@ export async function PUT(request: NextRequest) {
 
     const { notificationId, action, isRead } = await request.json();
 
-    if (!notificationId) {
-      return NextResponse.json({ error: 'Notification ID is required' }, { status: 400 });
-    }
-
-    // Find the notification
-    const notification = await User.findOne({
-      email: `notification_${notificationId}@system.local`,
-      isSystemDocument: true,
-      notificationUserId: currentUser.userId
-    });
-
-    if (!notification) {
-      return NextResponse.json({ error: 'Notification not found' }, { status: 404 });
-    }
-
-    // Handle different actions
-    const updateData: any = {};
-
-    if (action === 'markAsRead' || isRead !== undefined) {
-      updateData.notificationIsRead = isRead !== undefined ? isRead : true;
-      if (updateData.notificationIsRead && !notification.notificationReadAt) {
-        updateData.notificationReadAt = new Date();
-      }
-    }
-
+    // Bulk: mark all as read
     if (action === 'markAllAsRead') {
-      // Mark all notifications for this user as read
-      await User.updateMany(
-        {
-          notificationUserId: currentUser.userId,
-          isSystemDocument: true,
-          notificationIsRead: { $ne: true }
-        },
-        {
-          notificationIsRead: true,
-          notificationReadAt: new Date()
-        }
-      );
-
+      const result = await prisma.notification.updateMany({
+        where: { userId: currentUser.userId, isRead: false },
+        data: { isRead: true, readAt: new Date() },
+      });
       return NextResponse.json({
         success: true,
-        message: 'All notifications marked as read'
+        message: `Marked ${result.count} notifications as read`,
       });
     }
 
-    // Update single notification
-    const updatedNotification = await User.findByIdAndUpdate(
-      notification._id,
-      updateData,
-      { new: true }
-    );
+    if (!notificationId) {
+      return NextResponse.json(
+        { error: 'Notification ID is required' },
+        { status: 400 }
+      );
+    }
 
-    const formattedNotification = {
-      _id: notificationId,
-      title: updatedNotification.notificationTitle,
-      message: updatedNotification.notificationMessage,
-      type: updatedNotification.notificationType,
-      priority: updatedNotification.notificationPriority,
-      userId: updatedNotification.notificationUserId,
-      relatedId: updatedNotification.notificationRelatedId,
-      createdBy: updatedNotification.notificationCreatedBy,
-      createdDate: updatedNotification.notificationCreatedDate,
-      readAt: updatedNotification.notificationReadAt,
-      isRead: updatedNotification.notificationIsRead,
-      actionUrl: updatedNotification.notificationActionUrl,
-      metadata: updatedNotification.notificationMetadata
-    };
+    const target = await prisma.notification.findFirst({
+      where: { id: notificationId, userId: currentUser.userId },
+    });
+    if (!target) {
+      return NextResponse.json(
+        { error: 'Notification not found' },
+        { status: 404 }
+      );
+    }
+
+    const data: any = {};
+    if (action === 'markAsRead' || isRead !== undefined) {
+      data.isRead = isRead !== undefined ? isRead : true;
+      if (data.isRead && !target.readAt) data.readAt = new Date();
+    }
+
+    const updated = await prisma.notification.update({
+      where: { id: notificationId },
+      data,
+    });
 
     return NextResponse.json({
       success: true,
-      notification: formattedNotification,
-      message: 'Notification updated successfully'
+      message: 'Notification updated successfully',
+      notification: shape(updated),
     });
-
   } catch (error) {
     console.error('Notifications PUT error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
-    await connectToDatabase();
-
     const currentUser = await getCurrentUser(request);
     if (!currentUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -258,41 +185,42 @@ export async function DELETE(request: NextRequest) {
     const action = searchParams.get('action');
 
     if (action === 'clearAll') {
-      // Delete all read notifications for this user
-      await User.deleteMany({
-        notificationUserId: currentUser.userId,
-        isSystemDocument: true,
-        notificationIsRead: true
+      const result = await prisma.notification.deleteMany({
+        where: { userId: currentUser.userId, isRead: true },
       });
-
       return NextResponse.json({
         success: true,
-        message: 'All read notifications cleared'
+        message: `Cleared ${result.count} read notifications`,
       });
     }
 
     if (!notificationId) {
-      return NextResponse.json({ error: 'Notification ID is required' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Notification ID is required' },
+        { status: 400 }
+      );
     }
 
-    // Delete specific notification
-    const deletedNotification = await User.findOneAndDelete({
-      email: `notification_${notificationId}@system.local`,
-      isSystemDocument: true,
-      notificationUserId: currentUser.userId
+    const target = await prisma.notification.findFirst({
+      where: { id: notificationId, userId: currentUser.userId },
     });
-
-    if (!deletedNotification) {
-      return NextResponse.json({ error: 'Notification not found' }, { status: 404 });
+    if (!target) {
+      return NextResponse.json(
+        { error: 'Notification not found' },
+        { status: 404 }
+      );
     }
 
+    await prisma.notification.delete({ where: { id: notificationId } });
     return NextResponse.json({
       success: true,
-      message: 'Notification deleted successfully'
+      message: 'Notification deleted successfully',
     });
-
   } catch (error) {
     console.error('Notifications DELETE error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }

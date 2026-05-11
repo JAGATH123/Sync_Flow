@@ -1,6 +1,5 @@
 import jwt from 'jsonwebtoken';
 import { NextRequest } from 'next/server';
-import type { IUser } from '@/models/User';
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
@@ -18,12 +17,29 @@ export interface JWTPayload {
   exp?: number;
 }
 
-export function generateToken(user: IUser): string {
+/**
+ * DB-agnostic shape: works with either a Mongoose `IUser` (`_id` is an
+ * ObjectId) or a Prisma `User` (`id` is a cuid string).
+ */
+type UserForToken = {
+  _id?: { toString(): string } | string;
+  id?: string;
+  email: string;
+  role: string;
+  name: string;
+};
+
+export function generateToken(user: UserForToken): string {
+  const userId =
+    user.id ??
+    (typeof user._id === 'string' ? user._id : user._id?.toString()) ??
+    '';
+
   const payload: JWTPayload = {
-    userId: user._id.toString(),
+    userId,
     email: user.email,
-    role: user.role,
-    name: user.name
+    role: user.role as 'admin' | 'user' | 'client',
+    name: user.name,
   };
 
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });

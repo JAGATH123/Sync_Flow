@@ -1,6 +1,8 @@
-
+﻿
 'use client';
 
+
+import { apiFetch } from '@/lib/api/fetch';
 import { useState, useMemo, useEffect } from 'react';
 import type { User, Task, TaskStatus, Vertices, ReviewStatus, TaskPriority, TeamMember, AppNotification } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -94,7 +96,7 @@ export default function TaskManagementPage({
     // Load team members from API
     const loadTeamMembers = async () => {
       try {
-        const response = await fetch('/api/users');
+        const response = await apiFetch('/api/users');
         const data = await response.json();
 
         if (data.success && data.users) {
@@ -250,7 +252,7 @@ export default function TaskManagementPage({
         const originalTask = tasks.find(t => getTaskId(t) === taskId);
         const changes = editedTasks[taskId] || {};
 
-        const response = await fetch('/api/tasks', {
+        const response = await apiFetch('/api/tasks', {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -307,7 +309,7 @@ export default function TaskManagementPage({
     if (taskToDelete) {
       try {
         const taskId = getTaskId(taskToDelete);
-        const response = await fetch(`/api/tasks?ids=${taskId}`, {
+        const response = await apiFetch(`/api/tasks?ids=${taskId}`, {
           method: 'DELETE',
         });
 
@@ -341,7 +343,7 @@ export default function TaskManagementPage({
 
   const handleBulkDeleteConfirm = async () => {
     try {
-      const response = await fetch(`/api/tasks?ids=${selectedTasks.join(',')}`, {
+      const response = await apiFetch(`/api/tasks?ids=${selectedTasks.join(',')}`, {
         method: 'DELETE',
       });
 

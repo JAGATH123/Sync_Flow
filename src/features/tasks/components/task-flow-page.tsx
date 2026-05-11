@@ -1,6 +1,8 @@
-
+﻿
 'use client';
 
+
+import { apiFetch } from '@/lib/api/fetch';
 import { useState, useEffect } from 'react';
 import type { User, Task, TeamMember } from '@/types';
 import { ALL_USERS, MOCK_VERTICES, TEAM_MEMBERS } from '@/lib/mock-data';
@@ -49,7 +51,7 @@ export default function TaskFlowPage({ currentUser: authUser }: TaskFlowPageProp
     // Load tasks from API
     const loadTasks = async () => {
       try {
-        const response = await fetch('/api/tasks');
+        const response = await apiFetch('/api/tasks');
         const data = await response.json();
 
         if (data.success && data.tasks) {

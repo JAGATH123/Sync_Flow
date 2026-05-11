@@ -2,8 +2,17 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 
-// Define public routes that don't require authentication
-const publicRoutes = ['/login', '/api/auth/login', '/api/auth/logout', '/api/users'];
+// Define public routes that don't require authentication.
+// /sso + /api/auth/lof-sso are added so the LOF Portal handoff can complete
+// before any session exists.
+const publicRoutes = [
+  '/login',
+  '/sso',
+  '/api/auth/login',
+  '/api/auth/logout',
+  '/api/auth/lof-sso',
+  '/api/users',
+];
 
 // CORS configuration
 function addCorsHeaders(response: NextResponse, request: NextRequest) {

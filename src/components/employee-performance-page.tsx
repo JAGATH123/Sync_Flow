@@ -1,6 +1,8 @@
-
+﻿
 'use client';
 
+
+import { apiFetch } from '@/lib/api/fetch';
 import { useState, useEffect, useMemo } from 'react';
 import type { Task, Vertices, User, TeamMember, TaskStatus, WorkType, UserRole } from '@/types';
 import { MOCK_TASKS, MOCK_VERTICES, TEAM_MEMBERS } from '@/lib/mock-data';
@@ -106,7 +108,7 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
     // Fetch team members from API
     const fetchTeamMembers = async () => {
         try {
-            const response = await fetch('/api/users');
+            const response = await apiFetch('/api/users');
             const data = await response.json();
 
             if (data.success) {
@@ -136,7 +138,7 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
     const fetchTasks = async () => {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch('/api/tasks', {
+            const response = await apiFetch('/api/tasks', {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -703,7 +705,7 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
                             <div className="relative flex-1 max-w-md">
                                 <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
                                 <Input
-                                    placeholder="🔍 Search employees by name, ID, email, or designation..."
+                                    placeholder="ðŸ” Search employees by name, ID, email, or designation..."
                                     value={searchQuery}
                                     onChange={(e) => handleSearch(e.target.value)}
                                     className="pl-12 pr-12 h-11 bg-white/80 dark:bg-gray-950/80 border-2 focus:border-primary/50 shadow-sm"
@@ -1210,7 +1212,7 @@ export default function EmployeePerformancePage({ currentUser }: EmployeePerform
                                                                         {employee.overdueTasks}
                                                                     </Badge>
                                                                 ) : (
-                                                                    <span className="text-green-600 text-sm">✓</span>
+                                                                    <span className="text-green-600 text-sm">âœ“</span>
                                                                 )}
                                                             </td>
                                                         </tr>

@@ -1,5 +1,7 @@
-'use client';
+﻿'use client';
 
+
+import { apiFetch } from '@/lib/api/fetch';
 import { useState, useEffect } from 'react';
 import type { User, Task, TeamMember } from '@/types';
 import { ALL_USERS, MOCK_VERTICES, TEAM_MEMBERS } from '@/lib/mock-data';
@@ -12,26 +14,32 @@ import {
   Users,
   FileText,
   TrendingUp,
-  Home,
-  ArrowLeft,
   Radio,
 } from 'lucide-react';
 import DashboardPage from '@/components/shared/dashboard-page';
 import TaskManagementPage from '@/features/tasks/components/task-management-page';
 import CostEstimation from '@/components/shared/cost-estimation';
-import Clock from '@/components/layout/clock';
 import { cn } from '@/lib/utils';
-import UserMenu from '@/components/layout/user-menu';
 import OverviewPage from '@/components/shared/overview-page';
-import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarTrigger, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarFooter, SidebarInset } from '@/components/ui/sidebar';
+import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarFooter, SidebarInset } from '@/components/ui/sidebar';
 import MyTeamPage from '@/features/team/components/my-team-page';
-import Notifications from '@/components/layout/notifications';
 import ReportsPage from '@/features/reports/components/reports-page';
 import EmployeePerformancePage from '@/features/performance/components/employee-performance-page';
 import BroadcastingPage from '@/features/broadcasting/components/broadcasting-page';
-import { Button } from '@/components/ui/button';
-import LiveUsersIndicator from '@/components/layout/live-users-indicator';
+import TopNavbar from '@/components/layout/top-navbar';
 import { useRealtime } from '@/lib/realtime';
+
+// Map active view â†’ display label for the navbar breadcrumb
+const VIEW_LABELS: Record<string, string> = {
+  'overview':         'Overview',
+  'dashboard':        'Dashboard',
+  'task-management':  'Task Management',
+  'my-team':          'My Team',
+  'cost-estimation':  'Market Price',
+  'reports':          'Reports',
+  'performance':      'Performance',
+  'broadcasting':     'Broadcasting',
+};
 
 type AdminView = 'overview' | 'dashboard' | 'task-management' | 'cost-estimation' | 'my-team' | 'reports' | 'performance' | 'broadcasting';
 
@@ -55,7 +63,7 @@ export default function AdminDashboard({ currentUser: authUser }: AdminDashboard
         return;
       }
 
-      const response = await fetch('/api/tasks', {
+      const response = await apiFetch('/api/tasks', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -172,7 +180,7 @@ export default function AdminDashboard({ currentUser: authUser }: AdminDashboard
         return;
       }
 
-      const response = await fetch('/api/tasks', {
+      const response = await apiFetch('/api/tasks', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -252,11 +260,12 @@ export default function AdminDashboard({ currentUser: authUser }: AdminDashboard
     <SidebarProvider>
       <Sidebar side="left" collapsible="icon">
          <SidebarHeader>
-           <div className="flex justify-between items-center p-4">
-              <div className="w-32 group-data-[collapsible=icon]:hidden">
+           {/* Sidebar header â€” brand only. The hamburger toggle lives in the
+               TopNavbar so we don't duplicate a SidebarTrigger here. */}
+           <div className="flex items-center p-4 group-data-[collapsible=icon]:justify-center">
+              <div className="group-data-[collapsible=icon]:hidden">
                  <h2 className="text-2xl font-bold tracking-wider text-sidebar-foreground">SyncFlow</h2>
               </div>
-              <SidebarTrigger />
            </div>
            <div className="px-4 pb-4 group-data-[collapsible=icon]:hidden">
              <div className="h-px bg-border"></div>
@@ -329,18 +338,21 @@ export default function AdminDashboard({ currentUser: authUser }: AdminDashboard
       </Sidebar>
 
       <SidebarInset>
+        {/* Horilla-style top navbar â€” single source of nav chrome */}
+        <TopNavbar
+          viewLabel={VIEW_LABELS[activeView] ?? activeView}
+          onBack={handleBack}
+          canGoBack={viewHistory.length > 1}
+          onHome={() => handleSetView('overview')}
+          isOnOverview={activeView === 'overview'}
+          showLiveIndicator={activeView === 'overview' || activeView === 'dashboard'}
+          userRole="admin"
+        />
+
         <div className="w-full p-4 sm:p-6">
-          <header className="flex justify-between items-center mb-6">
-            <Clock />
-            <div className="flex items-center gap-4">
-              <LiveUsersIndicator />
-              <Notifications />
-              <UserMenu />
-            </div>
-          </header>
-           <div>
-              {renderContent()}
-            </div>
+          <div>
+            {renderContent()}
+          </div>
         </div>
       </SidebarInset>
     </SidebarProvider>

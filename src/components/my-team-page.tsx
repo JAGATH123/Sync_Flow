@@ -1,6 +1,8 @@
-
+﻿
 'use client';
 
+
+import { apiFetch } from '@/lib/api/fetch';
 import { useState, useEffect } from 'react';
 import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -133,7 +135,7 @@ export default function MyTeamPage({ currentUser }: MyTeamPageProps) {
   const fetchUsers = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch('/api/users');
+      const response = await apiFetch('/api/users');
       const data = await response.json();
 
       if (data.success) {
@@ -195,7 +197,7 @@ export default function MyTeamPage({ currentUser }: MyTeamPageProps) {
         ? { ...userData, role: 'client' }
         : { ...userData, vertex: userData.vertex || undefined };
 
-      const response = await fetch('/api/users', {
+      const response = await apiFetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(apiData)
@@ -272,7 +274,7 @@ export default function MyTeamPage({ currentUser }: MyTeamPageProps) {
         throw new Error('User not found');
       }
 
-      const response = await fetch(`/api/users?id=${userToDelete.id || (userToDelete as any)._id}`, {
+      const response = await apiFetch(`/api/users?id=${userToDelete.id || (userToDelete as any)._id}`, {
         method: 'DELETE'
       });
 
@@ -305,7 +307,7 @@ export default function MyTeamPage({ currentUser }: MyTeamPageProps) {
     if (!deletingClient) return;
 
     try {
-      const response = await fetch(`/api/users?id=${deletingClient.id}`, {
+      const response = await apiFetch(`/api/users?id=${deletingClient.id}`, {
         method: 'DELETE'
       });
 
